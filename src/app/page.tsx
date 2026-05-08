@@ -16,6 +16,7 @@ import {
   Target,
   TrendingUp,
   Zap,
+  Globe,
 } from "lucide-react";
 
 interface StatCardProps {
@@ -144,7 +145,7 @@ function ImageCarousel() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentIndex((previousIndex) => (previousIndex + 1) % items.length);
+      setCurrentIndex((prev) => (prev + 1) % items.length);
     }, 5000);
 
     return () => clearInterval(interval);
@@ -191,10 +192,10 @@ function ImageCarousel() {
     </div>
   );
 }
-
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-black text-white">
+      {/* Navbar */}
       <nav className="fixed top-0 z-50 w-full border-b border-gray-800 bg-black/95 backdrop-blur">
         <div className="flex items-center justify-between px-6 py-4 md:px-10">
           <Link href="/" className="inline-flex items-center">
@@ -206,32 +207,51 @@ export default function HomePage() {
           </Link>
 
           <div className="hidden gap-8 md:flex">
-            <a href="#features" className="font-mono text-sm text-gray-400 transition hover:text-yellow-400">
+            <a
+              href="#features"
+              className="font-mono text-sm text-gray-400 transition hover:text-yellow-400"
+            >
               Features
             </a>
-
-            <Link href="/new-entry" className="font-mono text-sm text-gray-400 transition hover:text-yellow-400">
+            <Link
+              href="/new-entry"
+              className="font-mono text-sm text-gray-400 transition hover:text-yellow-400"
+            >
               Analysis
             </Link>
-
-            <Link href="/journal" className="font-mono text-sm text-gray-400 transition hover:text-yellow-400">
+            <Link
+              href="/fundamentals"
+              className="font-mono text-sm text-gray-400 transition hover:text-yellow-400"
+            >
+              Fundamentals
+            </Link>
+            <Link
+              href="/journal"
+              className="font-mono text-sm text-gray-400 transition hover:text-yellow-400"
+            >
               Journal
             </Link>
-
-            <Link href="/trade-log" className="font-mono text-sm text-gray-400 transition hover:text-yellow-400">
+            <Link
+              href="/trade-log"
+              className="font-mono text-sm text-gray-400 transition hover:text-yellow-400"
+            >
               Trade Log
             </Link>
-
-            <Link href="/execution-lab" className="font-mono text-sm text-gray-400 transition hover:text-yellow-400">
+            <Link
+              href="/execution-lab"
+              className="font-mono text-sm text-gray-400 transition hover:text-yellow-400"
+            >
               Execution Lab
             </Link>
           </div>
 
           <div className="flex items-center gap-3">
-            <Link href="/login" className="hidden font-mono text-sm text-gray-400 transition hover:text-cyan-400 sm:block">
+            <Link
+              href="/login"
+              className="hidden font-mono text-sm text-gray-400 transition hover:text-cyan-400 sm:block"
+            >
               Login
             </Link>
-
             <Link
               href="/signup"
               className="inline-block bg-yellow-400 px-5 py-2 font-mono text-sm font-bold text-black transition hover:bg-yellow-300"
@@ -242,6 +262,7 @@ export default function HomePage() {
         </div>
       </nav>
 
+      {/* Hero Section */}
       <section className="relative px-6 pb-20 pt-36 text-center md:px-10 md:pt-44">
         <div className="pointer-events-none absolute left-1/2 top-20 h-72 w-72 -translate-x-1/2 rounded-full bg-yellow-400/10 blur-3xl" />
 
@@ -279,6 +300,7 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Dashboard Preview */}
       <section className="relative mb-20 px-6 md:px-10">
         <div className="border border-gray-800 bg-gradient-to-b from-gray-900 to-black p-8 shadow-2xl">
           <h3 className="mb-6 text-center font-mono text-2xl font-bold">
@@ -297,6 +319,7 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Features Section */}
       <section id="features" className="relative mb-32 px-6 md:px-10">
         <h3 className="mb-12 text-center font-mono text-4xl font-bold md:text-5xl">
           Everything You Need to <span className="text-yellow-400">Win</span>
@@ -324,6 +347,16 @@ export default function HomePage() {
           />
 
           <FeatureCard
+            icon={<Globe className="h-7 w-7" />}
+            label="Market Context"
+            title="Fundamentals"
+            description="Track economic calendar events, high-impact news, forecast, previous, and actual data across major currencies."
+            href="/fundamentals"
+            colorClass="text-green-400"
+            buttonText="Open Fundamentals"
+          />
+
+          <FeatureCard
             icon={<Calculator className="h-7 w-7" />}
             label="Execution Tools"
             title="Execution Lab"
@@ -332,21 +365,12 @@ export default function HomePage() {
             colorClass="text-cyan-400"
             buttonText="Open Lab"
           />
-
-          <FeatureCard
-            icon={<BarChart3 className="h-7 w-7" />}
-            label="Coming Soon"
-            title="Deep Analytics"
-            description="Review your progress, behavior patterns, trade log performance, consistency, journaling quality, and long-term trading growth."
-            colorClass="text-purple-400"
-            buttonText="Coming Soon"
-            disabled
-          />
         </div>
       </section>
-
+     {/* Analysis Workspace, Journal Library, Execution Lab, Trade Log Sections */}
       <section className="relative mb-32 px-6 md:px-10">
         <div className="space-y-32">
+          {/* Analysis Workspace */}
           <div className="grid items-center gap-16 md:grid-cols-2">
             <div className="space-y-6">
               <span className="font-mono text-sm tracking-wider text-orange-400">
@@ -362,7 +386,10 @@ export default function HomePage() {
                 Upload charts, add notes, tick checklists, and turn analysis into journal entries.
               </p>
 
-              <Link href="/new-entry" className="inline-flex bg-orange-400 px-6 py-3 font-mono font-bold text-black transition hover:bg-orange-300">
+              <Link
+                href="/new-entry"
+                className="inline-flex bg-orange-400 px-6 py-3 font-mono font-bold text-black transition hover:bg-orange-300"
+              >
                 Open Analysis Workspace
               </Link>
             </div>
@@ -376,6 +403,7 @@ export default function HomePage() {
             </div>
           </div>
 
+          {/* Journal Library */}
           <div className="grid items-center gap-16 md:grid-cols-2">
             <div className="order-2 flex h-96 items-center justify-center overflow-hidden rounded-xl border border-yellow-900/30 bg-black/50 transition-all duration-300 hover:border-yellow-400/50 md:order-1">
               <img
@@ -399,12 +427,16 @@ export default function HomePage() {
                 record of how you think before and after each trading decision.
               </p>
 
-              <Link href="/journal" className="inline-flex bg-yellow-400 px-6 py-3 font-mono font-bold text-black transition hover:bg-yellow-300">
+              <Link
+                href="/journal"
+                className="inline-flex bg-yellow-400 px-6 py-3 font-mono font-bold text-black transition hover:bg-yellow-300"
+              >
                 Open Journal Library
               </Link>
             </div>
           </div>
 
+          {/* Execution Lab */}
           <div className="grid items-center gap-16 md:grid-cols-2">
             <div className="space-y-6">
               <span className="font-mono text-sm tracking-wider text-cyan-400">
@@ -420,7 +452,10 @@ export default function HomePage() {
                 stop distance, potential gain, possible loss, and trade scenarios before entry.
               </p>
 
-              <Link href="/execution-lab" className="inline-flex bg-cyan-400 px-6 py-3 font-mono font-bold text-black transition hover:bg-cyan-300">
+              <Link
+                href="/execution-lab"
+                className="inline-flex bg-cyan-400 px-6 py-3 font-mono font-bold text-black transition hover:bg-cyan-300"
+              >
                 Open Execution Lab
               </Link>
             </div>
@@ -434,6 +469,7 @@ export default function HomePage() {
             </div>
           </div>
 
+          {/* Trade Log */}
           <div className="grid items-center gap-16 md:grid-cols-2">
             <div className="order-2 flex h-96 items-center justify-center overflow-hidden rounded-xl border border-green-900/30 bg-black/50 transition-all duration-300 hover:border-green-400/50 md:order-1">
               <img
@@ -457,7 +493,10 @@ export default function HomePage() {
                 screenshots, notes, setups, and review-ready trade data.
               </p>
 
-              <Link href="/trade-log" className="inline-flex bg-green-400 px-6 py-3 font-mono font-bold text-black transition hover:bg-green-300">
+              <Link
+                href="/trade-log"
+                className="inline-flex bg-green-400 px-6 py-3 font-mono font-bold text-black transition hover:bg-green-300"
+              >
                 Open Trade Log
               </Link>
             </div>
@@ -465,6 +504,7 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Fundamental Data */}
       <section className="relative mb-20 px-6 md:px-10">
         <h3 className="mb-12 text-center font-mono text-3xl font-bold">
           <span className="text-yellow-400">Fundamental Data</span> & Smart Review
@@ -474,15 +514,22 @@ export default function HomePage() {
           <div className="border border-gray-800 bg-black p-8">
             <h4 className="mb-6 flex items-center gap-2 font-mono text-lg font-bold">
               <PieChart className="h-5 w-5 text-yellow-400" />
-              Future Economic Layer
+              Economic Calendar Layer
             </h4>
 
-            <ul className="space-y-3 text-sm text-gray-400">
+            <ul className="mb-8 space-y-3 text-sm text-gray-400">
               <li>• <span className="text-yellow-400">Economic calendar</span> for market-impacting news</li>
               <li>• <span className="text-yellow-400">Fundamental notes</span> linked to trade decisions</li>
               <li>• <span className="text-yellow-400">Session context</span> for London/New York trades</li>
               <li>• <span className="text-yellow-400">News review</span> to compare expectation vs reaction</li>
             </ul>
+
+            <Link
+              href="/fundamentals"
+              className="inline-flex items-center gap-2 border border-yellow-400/50 px-4 py-2 font-mono text-xs font-bold text-yellow-400 transition hover:bg-yellow-400/10"
+            >
+              Open Economic Calendar <ArrowRight className="h-3 w-3" />
+            </Link>
           </div>
 
           <div className="border border-gray-800 bg-black p-8">
@@ -500,7 +547,7 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-
+     {/* Trading Workflow */}
       <section className="relative mb-20 px-6 md:px-10">
         <h3 className="mb-12 text-center font-mono text-3xl font-bold">
           Your <span className="text-cyan-400">Trading Workflow</span>
@@ -545,73 +592,39 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* CTA Section: Level Up */}
       <section className="relative mb-20 px-6 md:px-10">
         <div className="border border-gray-800 bg-gradient-to-b from-gray-900 to-black p-8 md:p-12">
-          <div className="mb-8 flex items-start gap-6">
-            <Shield className="mt-1 h-8 w-8 flex-shrink-0 text-green-400" />
-
-            <div>
-              <h3 className="mb-3 font-mono text-2xl font-bold">
-                Secure Trading Data
-              </h3>
-
-              <p className="text-gray-400">
-                EdgeVault keeps trading records tied to your account. Your private workspaces,
-                journals, screenshots, trade logs, and analysis stay separated by user authentication.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-3">
-            <div className="border border-green-400/30 bg-black/50 p-6">
-              <Lock className="mb-4 h-6 w-6 text-green-400" />
-              <h4 className="mb-2 font-mono font-bold text-green-400">
-                Supabase Auth
-              </h4>
-              <p className="text-sm text-gray-400">Account-based access control</p>
-            </div>
-
-            <div className="border border-green-400/30 bg-black/50 p-6">
-              <Shield className="mb-4 h-6 w-6 text-green-400" />
-              <h4 className="mb-2 font-mono font-bold text-green-400">
-                RLS Policies
-              </h4>
-              <p className="text-sm text-gray-400">Users access only their data</p>
-            </div>
-
-            <div className="border border-green-400/30 bg-black/50 p-6">
-              <Cpu className="mb-4 h-6 w-6 text-green-400" />
-              <h4 className="mb-2 font-mono font-bold text-green-400">
-                Storage Rules
-              </h4>
-              <p className="text-sm text-gray-400">Screenshots stored securely</p>
-            </div>
+          <div className="mx-auto max-w-4xl text-center">
+            <h3 className="mb-6 font-mono text-4xl font-bold">
+              Ready to <span className="text-yellow-400">Level Up</span>?
+            </h3>
+            <p className="mb-10 text-lg text-gray-400">
+              Join professional traders using EdgeVault to structure their analysis and improve execution.
+            </p>
+            <Link
+              href="/signup"
+              className="inline-flex bg-yellow-400 px-10 py-4 font-mono text-lg font-bold text-black transition hover:bg-yellow-300"
+            >
+              Get Started Now
+            </Link>
           </div>
         </div>
       </section>
 
-      <section className="relative mb-20 px-6 md:px-10">
-        <div className="border border-yellow-400/30 bg-gradient-to-r from-yellow-400/10 to-cyan-400/10 p-8 text-center md:p-12">
-          <h3 className="mb-4 font-mono text-3xl font-bold">
-            Ready to Build Discipline Into Your Trading?
-          </h3>
-
-          <p className="mx-auto mb-8 max-w-2xl text-gray-400">
-            Start with journaling, execution planning, and trade tracking. Deep analytics and
-            economic tools can come later.
-          </p>
-
-          <Link
-            href="/signup"
-            className="mx-auto inline-flex items-center gap-2 bg-yellow-400 px-8 py-3 font-mono font-bold text-black transition hover:bg-yellow-300"
-          >
-            Get Started Now <ArrowRight className="h-4 w-4" />
-          </Link>
+      {/* Footer */}
+      <footer className="border-t border-gray-800 py-12 px-6 md:px-10">
+        <div className="flex flex-col items-center justify-between gap-6 md:flex-row">
+          <div className="flex items-center gap-2">
+            <img src="/edgevault-logo.png" alt="EdgeVault" className="h-8 w-auto" />
+            <span className="font-mono text-sm text-gray-500">© 2026 EdgeVault Intelligence.</span>
+          </div>
+          <div className="flex gap-8">
+            <Link href="#" className="font-mono text-xs text-gray-500 hover:text-white">Terms</Link>
+            <Link href="#" className="font-mono text-xs text-gray-500 hover:text-white">Privacy</Link>
+            <Link href="#" className="font-mono text-xs text-gray-500 hover:text-white">Support</Link>
+          </div>
         </div>
-      </section>
-
-      <footer className="border-t border-gray-800 px-10 py-8 text-center font-mono text-sm text-gray-500">
-        <p>© 2026 EdgeVault. All rights reserved.</p>
       </footer>
     </main>
   );
