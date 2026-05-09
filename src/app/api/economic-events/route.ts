@@ -12,6 +12,7 @@ export async function GET() {
     const { error: saveError } = await upsertEconomicEvents(economicEvents);
 
     if (saveError) {
+      console.error("Save error:", saveError);
       return NextResponse.json(
         { message: "Failed to save economic events" },
         { status: 500 }
@@ -21,6 +22,7 @@ export async function GET() {
     const { error: loadError, events } = await getStoredEconomicEvents();
 
     if (loadError) {
+      console.error("Load error:", loadError);
       return NextResponse.json(
         { message: "Failed to load economic events" },
         { status: 500 }
