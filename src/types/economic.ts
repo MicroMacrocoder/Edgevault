@@ -1,14 +1,14 @@
 // src/types/economic.ts
 
-// Represents an internal economic event from your API
+// Represents a standard economic event
 export interface EconomicEvent {
   id?: string;
   external_id?: string;
-  title?: string;
+  title?: string; // Added title to prevent build error
   country?: string | null;
   currency?: string | null;
-  impact?: string | null;
-  event_time?: string | null; // ISO string
+  impact?: "High" | "Medium" | "Low" | null;
+  event_time?: string | null;
   forecast?: number | null;
   previous?: number | null;
   actual?: number | null;
@@ -16,17 +16,18 @@ export interface EconomicEvent {
   source?: string | null;
 }
 
-// Represents an external economic event from 3rd-party APIs
+// Represents events fetched from an external API
 export interface ExternalEconomicEvent {
-  id?: string;
-  name?: string;
-  country?: string;
-  currency?: string;
-  importance?: "High" | "Medium" | "Low";
-  date?: string;
-  actual?: number | null;
+  id: string;
+  title?: string; // ✅ Added this line to fix the Vercel build error
+  country: string;
+  date: string;
+  time: string;
+  currency?: string | null;
+  impact?: "High" | "Medium" | "Low" | null;
   forecast?: number | null;
   previous?: number | null;
+  actual?: number | null;
   unit?: string | null;
-  source?: string;
+  source?: string | null;
 }
