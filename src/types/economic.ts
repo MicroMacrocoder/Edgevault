@@ -1,18 +1,17 @@
 // src/types/economic.ts
 export type EconomicEvent = {
   id: string;
-  indicator: string;           // Name of the event, e.g., "NFP"
-  currency: string | null;     // e.g., "USD"
+  indicator: string;       // Name of the event, e.g., "NFP"
+  currency: string | null; // e.g., "USD"
   actual: number | null;
   forecast: number | null;
   previous: number | null;
   impact: "High" | "Medium" | "Low";
-  unit: string | null;         // e.g., "%", "jobs", etc.
-  releaseDate: string;         // ISO datetime string
-  source: string;              // e.g., "MockExternalAPI" or actual API name
+  unit: string | null;     // e.g., "%", "jobs", etc.
+  releaseDate: string;     // ISO datetime string
+  source: string;          // e.g., "MockExternalAPI" or API name
 };
 
-// External mock API structure
 export type ExternalEconomicEvent = {
   id: string;
   title: string;

@@ -1,58 +1,179 @@
-import { createClient } from "@supabase/supabase-js";
-import type { EconomicEvent } from "@/types/economic";
+// src/lib/economicEvents.ts
+import type { EconomicEvent, ExternalEconomicEvent } from "../types/economic";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const EXTERNAL_ECONOMIC_API_KEY = process.env.EXTERNAL_ECONOMIC_API_KEY || "";
 
-if (!supabaseUrl) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+/**
+ * TEMPORARY MOCK DATA
+ * This simulates an external economic calendar API.
+ * Later, this function will be replaced with a real API request.
+ */
+async function fetchExternalEconomicEvents(): Promise<ExternalEconomicEvent[]> {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  return [
+    {
+      id: "usd-interest-rate-decision-2026-05-15",
+      title: "Interest Rate Decision",
+      country: "United States",
+      date: "2026-05-15",
+      time: "14:00",
+      impact: "High",
+      actual: null,
+      forecast: 0.25,
+      previous: 0.25,
+      unit: "%",
+      currency: "USD",
+    },
+    {
+      id: "usd-non-farm-payrolls-2026-05-15",
+      title: "Non-Farm Payrolls",
+      country: "United States",
+      date: "2026-05-15",
+      time: "12:30",
+      impact: "High",
+      actual: null,
+      forecast: 190000,
+      previous: 175000,
+      unit: "jobs",
+      currency: "USD",
+    },
+    {
+      id: "eur-unemployment-rate-2026-05-16",
+      title: "Unemployment Rate",
+      country: "Eurozone",
+      date: "2026-05-16",
+      time: "09:00",
+      impact: "Medium",
+      actual: null,
+      forecast: 6.3,
+      previous: 6.5,
+      unit: "%",
+      currency: "EUR",
+    },
+    {
+      id: "eur-cpi-2026-05-16",
+      title: "Consumer Price Index",
+      country: "Eurozone",
+      date: "2026-05-16",
+      time: "10:00",
+      impact: "High",
+      actual: null,
+      forecast: 2.4,
+      previous: 2.2,
+      unit: "%",
+      currency: "EUR",
+    },
+    {
+      id: "jpy-manufacturing-pmi-2026-05-17",
+      title: "Manufacturing PMI",
+      country: "Japan",
+      date: "2026-05-17",
+      time: "01:30",
+      impact: "Low",
+      actual: null,
+      forecast: 51.5,
+      previous: 50.9,
+      unit: "index",
+      currency: "JPY",
+    },
+    {
+      id: "jpy-boj-policy-rate-2026-05-17",
+      title: "BoJ Policy Rate",
+      country: "Japan",
+      date: "2026-05-17",
+      time: "03:00",
+      impact: "High",
+      actual: null,
+      forecast: 0.1,
+      previous: 0.1,
+      unit: "%",
+      currency: "JPY",
+    },
+    {
+      id: "gbp-gdp-growth-2026-05-18",
+      title: "GDP Growth Rate",
+      country: "United Kingdom",
+      date: "2026-05-18",
+      time: "06:00",
+      impact: "High",
+      actual: null,
+      forecast: 0.3,
+      previous: 0.2,
+      unit: "%",
+      currency: "GBP",
+    },
+    {
+      id: "gbp-boe-interest-rate-2026-05-18",
+      title: "BoE Interest Rate Decision",
+      country: "United Kingdom",
+      date: "2026-05-18",
+      time: "11:00",
+      impact: "High",
+      actual: null,
+      forecast: 4.75,
+      previous: 5.0,
+      unit: "%",
+      currency: "GBP",
+    },
+    {
+      id: "aud-employment-change-2026-05-19",
+      title: "Employment Change",
+      country: "Australia",
+      date: "2026-05-19",
+      time: "01:30",
+      impact: "High",
+      actual: null,
+      forecast: 25000,
+      previous: 18000,
+      unit: "jobs",
+      currency: "AUD",
+    },
+    {
+      id: "aud-rba-rate-statement-2026-05-19",
+      title: "RBA Rate Statement",
+      country: "Australia",
+      date: "2026-05-19",
+      time: "04:30",
+      impact: "High",
+      actual: null,
+      forecast: 4.35,
+      previous: 4.35,
+      unit: "%",
+      currency: "AUD",
+    },
+  ];
 }
 
-if (!supabaseServiceRoleKey) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+function normalizeEconomicEvent(
+  event: ExternalEconomicEvent,
+  source: string
+): EconomicEvent {
+  // Combine date and time into ISO format
+  const combinedTimestamp = `${event.date}T${event.time}:00Z`;
+
+  return {
+    id: event.id,
+    indicator: event.title,         // matches EconomicEvent type
+    currency: event.currency ?? null,
+    actual: event.actual ?? null,
+    forecast: event.forecast ?? null,
+    previous: event.previous ?? null,
+    impact: event.impact,
+    unit: event.unit ?? null,
+    releaseDate: combinedTimestamp,
+    source,
+  };
 }
 
-const supabaseServer = createClient(supabaseUrl, supabaseServiceRoleKey);
-
-export async function upsertEconomicEvents(events: EconomicEvent[]) {
-  const rows = events.map((event) => ({
-    external_id: event.id,
-    title: event.name,
-    country: event.region,
-    currency: event.currency,
-    impact: event.impactLevel,
-    event_time: event.timestamp,
-    forecast: event.forecastValue,
-    previous: event.previousValue,
-    actual: event.actualValue,
-    unit: event.unit,
-    source: event.source,
-  }));
-
-  const { error } = await supabaseServer
-    .from("economic_events")
-    .upsert(rows, {
-      onConflict: "external_id",
-    });
-
-  if (error) {
-    console.error("UPSERT ECONOMIC EVENTS ERROR:", error.message);
-    return { error };
+export async function getEconomicEvents(): Promise<EconomicEvent[]> {
+  if (!EXTERNAL_ECONOMIC_API_KEY) {
+    console.warn("EXTERNAL_ECONOMIC_API_KEY is not set. Using mock data.");
   }
 
-  return { error: null };
-}
+  const externalEvents = await fetchExternalEconomicEvents();
 
-export async function getStoredEconomicEvents() {
-  const { data, error } = await supabaseServer
-    .from("economic_events")
-    .select("*")
-    .order("event_time", { ascending: true });
-
-  if (error) {
-    console.error("GET STORED ECONOMIC EVENTS ERROR:", error.message);
-    return { error, events: [] };
-  }
-
-  return { error: null, events: data || [] };
+  return externalEvents.map((event) =>
+    normalizeEconomicEvent(event, "MockExternalAPI")
+  );
 }

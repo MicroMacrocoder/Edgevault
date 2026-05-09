@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getEconomicEvents } from "../../../lib/economicCalendar";
+import { getEconomicEvents } from "@/lib/economicCalendar";
 import {
   getStoredEconomicEvents,
   upsertEconomicEvents,
-} from "../../../lib/supabase/economicEvents";
+} from "@/lib/supabase/economicEvents";
 
 export async function GET() {
   try {

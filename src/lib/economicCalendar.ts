@@ -1,4 +1,4 @@
-import type { EconomicEvent, ExternalEconomicEvent } from "../types/economic";
+import type { EconomicEvent, ExternalEconomicEvent } from "@/types/economic";
 
 const EXTERNAL_ECONOMIC_API_KEY = process.env.EXTERNAL_ECONOMIC_API_KEY || "";
 
@@ -36,7 +36,6 @@ async function fetchExternalEconomicEvents(): Promise<ExternalEconomicEvent[]> {
       unit: "jobs",
       currency: "USD",
     },
-    // … add the rest of your mock events here
   ];
 }
 
