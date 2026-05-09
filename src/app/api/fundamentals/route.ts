@@ -1,120 +1,102 @@
 import { NextResponse } from "next/server";
 
-// Define the expected structure for frontend consumption
 export type FundamentalData = {
-  currency: string; // e.g., "USD"
-  indicator: string; // e.g., "NFP"
+  currency: string;
+  indicator: string;
   actual: number | null;
   forecast: number | null;
   previous: number | null;
   impact: "High" | "Medium" | "Low";
   unit: string;
-  releaseDate: string; // ISO datetime
+  releaseDate: string;
 };
-
-// Finnhub API response structure
-interface FinnhubEconomicEvent {
-  country: string;
-  event: string;
-  actual: number | null;
-  forecast: number | null;
-  prev: number | null;
-  impact: "High" | "Medium" | "Low";
-  unit: string;
-  time: number; // Unix timestamp in seconds
-}
-
-interface FinnhubEconomicCalendarResponse {
-  data: FinnhubEconomicEvent[];
-}
 
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 
-// DXY currencies
-const DXY_CURRENCIES = ["US", "EU", "GB", "JP", "CA", "CH", "AU"];
+const COUNTRY_TO_CURRENCY: Record<string, string> = {
+  "US": "USD",
+  "EU": "EUR",
+  "EZ": "EUR",
+  "EMU": "EUR",
+  "GB": "GBP",
+  "UK": "GBP",
+  "JP": "JPY",
+  "CA": "CAD",
+  "CH": "CHF",
+  "AU": "AUD",
+};
 
 export async function GET() {
   if (!FINNHUB_API_KEY) {
     return NextResponse.json(
-      { error: true, message: "Finnhub API key not configured." },
+      { error: true, message: "Missing FINNHUB_API_KEY" },
       { status: 500 }
     );
   }
 
   const today = new Date();
   const fromDate = new Date(today);
-  fromDate.setDate(today.getDate() - 7); // 7 days back
+  fromDate.setDate(today.getDate() - 7);
   const toDate = new Date(today);
-  toDate.setDate(today.getDate() + 7); // 7 days ahead
+  toDate.setDate(today.getDate() + 7);
 
   const from = fromDate.toISOString().split("T")[0];
   const to = toDate.toISOString().split("T")[0];
 
+  const url = "https://finnhub.io/api/v1/calendar/economic?from=" + from + "&to=" + to + "&token=" + FINNHUB_API_KEY;
+
   try {
-    const response = await fetch(
-      `https://finnhub.io/api/v1/calendar/economic?from=${from}&to=${to}&token=${FINNHUB_API_KEY}`,
-      { next: { revalidate: 300 } } // Revalidate every 5 minutes
-    );
+    const response = await fetch(url, { next: { revalidate: 60 } } ); // Refresh every 60 seconds
+    const rawJson = await response.json();
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => null);
-      console.error("Finnhub API error:", errorData);
       return NextResponse.json(
-        { error: true, message: `Failed to fetch data: ${errorData?.error || response.statusText}` },
+        { error: true, message: "API Error" },
         { status: response.status }
       );
     }
 
-    const data: FinnhubEconomicCalendarResponse = await response.json();
+    const events = rawJson.economicCalendar || [];
 
-    const fundamentalData: FundamentalData[] = data.data
-      .filter((event) => DXY_CURRENCIES.includes(event.country))
-      .map((event) => {
-        const releaseDate = new Date(event.time * 1000).toISOString(); // Unix to ISO
-        let currencyCode = "";
-        switch (event.country) {
-          case "US":
-            currencyCode = "USD";
-            break;
-          case "EU":
-            currencyCode = "EUR";
-            break;
-          case "GB":
-            currencyCode = "GBP";
-            break;
-          case "JP":
-            currencyCode = "JPY";
-            break;
-          case "CA":
-            currencyCode = "CAD";
-            break;
-          case "CH":
-            currencyCode = "CHF";
-            break;
-          case "AU":
-            currencyCode = "AUD";
-            break;
-          default:
-            currencyCode = event.country;
+    const fundamentalData: FundamentalData[] = events
+      .filter(function (event: any) {
+        return COUNTRY_TO_CURRENCY[event.country] !== undefined;
+      })
+      .map(function (event: any) {
+        let releaseDate = "";
+        if (typeof event.time === "string") {
+          const parsed = Date.parse(event.time);
+          releaseDate = !isNaN(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+        } else if (typeof event.time === "number") {
+          releaseDate = new Date(event.time * 1000).toISOString();
+        } else {
+          releaseDate = new Date().toISOString();
         }
 
+        let finalImpact: "High" | "Medium" | "Low" = "Low";
+        const lowerImpact = (event.impact || "").toLowerCase();
+        if (lowerImpact === "high") finalImpact = "High";
+        else if (lowerImpact === "medium") finalImpact = "Medium";
+
         return {
-          currency: currencyCode,
-          indicator: event.event,
-          actual: event.actual,
-          forecast: event.forecast,
-          previous: event.prev,
-          impact: event.impact,
-          unit: event.unit,
-          releaseDate,
+          currency: COUNTRY_TO_CURRENCY[event.country],
+          indicator: event.event || "Economic Release",
+          actual: event.actual ?? null,
+          forecast: event.estimate ?? null,
+          previous: event.prev ?? null,
+          impact: finalImpact,
+          unit: event.unit || "",
+          releaseDate: releaseDate,
         };
+      })
+      .sort(function (a, b) {
+        return new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime();
       });
 
     return NextResponse.json(fundamentalData);
   } catch (error) {
-    console.error("Error in fundamental data API route:", error);
     return NextResponse.json(
-      { error: true, message: "Failed to fetch fundamental data." },
+      { error: true, message: "Fetch failed" },
       { status: 500 }
     );
   }
