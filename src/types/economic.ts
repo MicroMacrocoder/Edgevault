@@ -1,33 +1,28 @@
 // src/types/economic.ts
-
-// Represents a standard economic event
-export interface EconomicEvent {
-  id?: string;
-  external_id?: string;
-  title?: string; // Added title to prevent build error
-  country?: string | null;
-  currency?: string | null;
-  impact?: "High" | "Medium" | "Low" | null;
-  event_time?: string | null;
-  forecast?: number | null;
-  previous?: number | null;
-  actual?: number | null;
-  unit?: string | null;
-  source?: string | null;
-}
-
-// Represents events fetched from an external API
-export interface ExternalEconomicEvent {
+export type EconomicEvent = {
   id: string;
-  title?: string; // ✅ Added this line to fix the Vercel build error
+  indicator: string;           // Name of the event, e.g., "NFP"
+  currency: string | null;     // e.g., "USD"
+  actual: number | null;
+  forecast: number | null;
+  previous: number | null;
+  impact: "High" | "Medium" | "Low";
+  unit: string | null;         // e.g., "%", "jobs", etc.
+  releaseDate: string;         // ISO datetime string
+  source: string;              // e.g., "MockExternalAPI" or actual API name
+};
+
+// External mock API structure
+export type ExternalEconomicEvent = {
+  id: string;
+  title: string;
   country: string;
   date: string;
   time: string;
-  currency?: string | null;
-  impact?: "High" | "Medium" | "Low" | null;
-  forecast?: number | null;
-  previous?: number | null;
-  actual?: number | null;
-  unit?: string | null;
-  source?: string | null;
-}
+  impact: "High" | "Medium" | "Low";
+  actual: number | null;
+  forecast: number | null;
+  previous: number | null;
+  unit: string;
+  currency: string;
+};
