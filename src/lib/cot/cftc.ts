@@ -8,7 +8,8 @@ export const COT_SYMBOLS: COTSymbol[] = [
     label: "U.S. Dollar Index",
     symbol: "DXY",
     currency: "USD",
-    market_name: "U.S. DOLLAR INDEX - ICE FUTURES U.S.",
+    market_name: "USD INDEX - ICE FUTURES U.S.",
+    cftc_code: "098662",
   },
   {
     label: "Euro FX",
@@ -50,6 +51,7 @@ export const COT_SYMBOLS: COTSymbol[] = [
 
 type ParsedLegacyRow = {
   marketName: string;
+  cftcCode: string;
   reportDate: string;
 
   openInterest: number;
@@ -91,6 +93,12 @@ function normalizeHeader(value: string) {
 
 function normalizeMarketName(value: string) {
   return value.replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+function normalizeCFTCCode(value: string | undefined) {
+  if (!value) return "";
+
+  return value.replace(/\D/g, "").padStart(6, "0");
 }
 
 function parseCSVLine(line: string) {
@@ -186,6 +194,13 @@ function parseLegacyCSV(csvText: string): ParsedLegacyRow[] {
     "Market and Exchange Names",
   ]);
 
+  const cftcCodeIndex = getColumnIndex(headers, [
+    "CFTC_Contract_Market_Code",
+    "CFTC Contract Market Code",
+    "CFTC_Contract_Market_Code_Quotes",
+    "CFTC Contract Market Code Quotes",
+  ]);
+
   const reportDateIndex = getColumnIndex(headers, [
     "Report_Date_as_YYYY-MM-DD",
     "Report Date as YYYY-MM-DD",
@@ -268,6 +283,8 @@ function parseLegacyCSV(csvText: string): ParsedLegacyRow[] {
 
     return {
       marketName: values[marketIndex] || "",
+      cftcCode:
+        cftcCodeIndex === -1 ? "" : normalizeCFTCCode(values[cftcCodeIndex]),
       reportDate: convertCFTCDateToISO(values[reportDateIndex]),
 
       openInterest: toNumber(values[openInterestIndex]),
@@ -361,6 +378,17 @@ function getYearsFromStartDate(startDate: string) {
   return years;
 }
 
+function rowMatchesSymbol(row: ParsedLegacyRow, symbolConfig: COTSymbol) {
+  if (symbolConfig.cftc_code) {
+    return row.cftcCode === normalizeCFTCCode(symbolConfig.cftc_code);
+  }
+
+  const rowMarketName = normalizeMarketName(row.marketName);
+  const targetMarketName = normalizeMarketName(symbolConfig.market_name);
+
+  return rowMarketName === targetMarketName;
+}
+
 export async function fetchCOTReportsFromCFTC(startDate = "2025-01-01") {
   const years = getYearsFromStartDate(startDate);
   const allRowsByYear = await Promise.all(
@@ -370,13 +398,9 @@ export async function fetchCOTReportsFromCFTC(startDate = "2025-01-01") {
   const allRows = allRowsByYear.flat();
 
   const normalizedReports = COT_SYMBOLS.flatMap((symbolConfig) => {
-    const targetMarketName = normalizeMarketName(symbolConfig.market_name);
-
     return allRows
       .filter((row) => {
-        const rowMarketName = normalizeMarketName(row.marketName);
-
-        return rowMarketName === targetMarketName && row.reportDate >= startDate;
+        return rowMatchesSymbol(row, symbolConfig) && row.reportDate >= startDate;
       })
       .map((row) => normalizeCFTCRow(row, symbolConfig));
   });

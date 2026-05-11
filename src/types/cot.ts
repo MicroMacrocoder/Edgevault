@@ -55,4 +55,6 @@ export type COTSymbol = {
   symbol: string;
   currency: string;
   market_name: string;
+  cftc_code?: string;
 };
+

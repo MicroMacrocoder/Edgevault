@@ -14,6 +14,7 @@ import {
 import type { COTReport } from "@/types/cot";
 
 const COT_SYMBOL_OPTIONS = [
+  { label: "U.S. Dollar Index", symbol: "DXY" },
   { label: "Euro FX", symbol: "EUR" },
   { label: "British Pound", symbol: "GBP" },
   { label: "Japanese Yen", symbol: "JPY" },

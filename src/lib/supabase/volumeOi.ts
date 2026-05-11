@@ -1,5 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
-import type { COTExternalReport, COTReport } from "@/types/cot";
+import type {
+  VolumeOIExternalReport,
+  VolumeOIReport,
+} from "@/types/volumeOi";
 
 function getSupabaseServerClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,53 +19,47 @@ function getSupabaseServerClient() {
   return createClient(supabaseUrl, supabaseServiceRoleKey);
 }
 
-export async function upsertCOTReports(reports: COTExternalReport[]) {
+export async function upsertVolumeOIReports(
+  reports: VolumeOIExternalReport[]
+) {
   const supabaseServer = getSupabaseServerClient();
 
   const rows = reports.map((report) => ({
     symbol: report.symbol,
     currency: report.currency,
     market_name: report.market_name,
+    exchange: report.exchange,
 
-    report_date: report.report_date,
+    trade_date: report.trade_date,
 
-    commercial_long: report.commercial_long,
-    commercial_short: report.commercial_short,
-    commercial_net: report.commercial_net,
-
-    noncommercial_long: report.noncommercial_long,
-    noncommercial_short: report.noncommercial_short,
-    noncommercial_net: report.noncommercial_net,
-
-    nonreportable_long: report.nonreportable_long,
-    nonreportable_short: report.nonreportable_short,
-    nonreportable_net: report.nonreportable_net,
-
+    volume: report.volume,
     open_interest: report.open_interest,
 
     source: report.source,
     updated_at: new Date().toISOString(),
   }));
 
-  const { error } = await supabaseServer.from("cot_reports").upsert(rows, {
-    onConflict: "symbol,report_date",
-  });
+  const { error } = await supabaseServer
+    .from("volume_oi_data")
+    .upsert(rows, {
+      onConflict: "symbol,trade_date",
+    });
 
   if (error) {
-    console.error("UPSERT COT REPORTS ERROR:", error.message);
+    console.error("UPSERT VOLUME OI REPORTS ERROR:", error.message);
     return { error };
   }
 
   return { error: null };
 }
 
-export async function getStoredCOTReports(symbol?: string) {
+export async function getStoredVolumeOIReports(symbol?: string) {
   const supabaseServer = getSupabaseServerClient();
 
   let query = supabaseServer
-    .from("cot_reports")
+    .from("volume_oi_data")
     .select("*")
-    .order("report_date", { ascending: true });
+    .order("trade_date", { ascending: true });
 
   if (symbol && symbol !== "all") {
     query = query.eq("symbol", symbol);
@@ -71,21 +68,25 @@ export async function getStoredCOTReports(symbol?: string) {
   const { data, error } = await query;
 
   if (error) {
-    console.error("GET STORED COT REPORTS ERROR:", error.message);
-    return { error, reports: [] as COTReport[] };
+    console.error("GET STORED VOLUME OI REPORTS ERROR:", error.message);
+
+    return {
+      error,
+      reports: [] as VolumeOIReport[],
+    };
   }
 
   return {
     error: null,
-    reports: (data || []) as COTReport[],
+    reports: (data || []) as VolumeOIReport[],
   };
 }
 
-export async function getLatestCOTUpdatedAt(symbol?: string) {
+export async function getLatestVolumeOIUpdatedAt(symbol?: string) {
   const supabaseServer = getSupabaseServerClient();
 
   let query = supabaseServer
-    .from("cot_reports")
+    .from("volume_oi_data")
     .select("updated_at")
     .not("updated_at", "is", null)
     .order("updated_at", { ascending: false })
@@ -98,7 +99,7 @@ export async function getLatestCOTUpdatedAt(symbol?: string) {
   const { data, error } = await query;
 
   if (error) {
-    console.error("GET LATEST COT UPDATED AT ERROR:", error.message);
+    console.error("GET LATEST VOLUME OI UPDATED AT ERROR:", error.message);
 
     return {
       error,
