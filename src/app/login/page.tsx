@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -8,14 +8,41 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 export default function LoginPage() {
+  const router = useRouter();
+
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [showPassword, setShowPassword] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isCheckingSession, setIsCheckingSession] = useState<boolean>(true);
 
-  const router = useRouter();
+  useEffect(() => {
+    let isMounted = true;
+
+    async function checkExistingSession() {
+      const { data } = await supabase.auth.getSession();
+      const user = data?.session?.user ?? null;
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (user) {
+        router.replace("/dashboard");
+        return;
+      }
+
+      setIsCheckingSession(false);
+    }
+
+    checkExistingSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -35,52 +62,82 @@ export default function LoginPage() {
       return;
     }
 
-    if (data) {
-      setSuccessMessage("Login successful. Redirecting...");
-      setIsLoading(false);
+    if (data?.session?.user) {
+      setSuccessMessage("Login successful. Opening dashboard...");
 
       setTimeout(() => {
-        router.push("/");
-      }, 1200);
+        router.replace("/dashboard");
+      }, 800);
+
+      return;
     }
+
+    setErrorMessage("Login completed, but no session was found. Please try again.");
+    setIsLoading(false);
   }
 
   async function handleGoogleLogin() {
     setSuccessMessage("");
     setErrorMessage("");
+    setIsLoading(true);
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo:
           typeof window !== "undefined"
-            ? `${window.location.origin}/`
+            ? `${window.location.origin}/dashboard`
             : undefined,
       },
     });
 
     if (error) {
       setErrorMessage(error.message);
+      setIsLoading(false);
     }
   }
 
   async function handleAppleLogin() {
     setSuccessMessage("");
     setErrorMessage("");
+    setIsLoading(true);
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "apple",
       options: {
         redirectTo:
           typeof window !== "undefined"
-            ? `${window.location.origin}/`
+            ? `${window.location.origin}/dashboard`
             : undefined,
       },
     });
 
     if (error) {
       setErrorMessage(error.message);
+      setIsLoading(false);
     }
+  }
+
+  if (isCheckingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-black text-white">
+        <div className="text-center">
+          <img
+            src="/edgevault-logo.png"
+            alt="EdgeVault"
+            className="mx-auto h-24 w-auto object-contain"
+          />
+
+          <p className="mt-6 font-mono text-sm uppercase tracking-[0.3em] text-yellow-400">
+            Checking Session
+          </p>
+
+          <p className="mt-3 text-sm text-gray-400">
+            Please wait while EdgeVault verifies your access.
+          </p>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -94,8 +151,8 @@ export default function LoginPage() {
               Rise above.
             </h1>
             <h1 className="text-[48px] font-bold leading-[1.05] tracking-tight">
-              <span className="text-cyan-400">Trade</span>{" "}
-              <span className="text-[#22c55e]">beyond.</span>
+              <span className="text-yellow-400">Trade</span>{" "}
+              <span className="text-cyan-400">beyond.</span>
             </h1>
             <p className="mt-6 text-[18px] font-medium leading-relaxed text-gray-400">
               Intelligent insights. Real-time edge.
@@ -111,12 +168,13 @@ export default function LoginPage() {
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-5">
                 <Mail className="h-5 w-5 text-gray-500" />
               </div>
+
               <input
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="Email"
-                className="block w-full rounded-xl border border-gray-800 bg-transparent py-[19px] pl-14 pr-4 text-[16px] text-white placeholder:text-gray-600 transition-all focus:border-gray-600 focus:outline-none"
+                className="block w-full rounded-xl border border-gray-800 bg-transparent py-[19px] pl-14 pr-4 text-[16px] text-white placeholder:text-gray-600 transition-all focus:border-yellow-400 focus:outline-none"
                 required
               />
             </div>
@@ -126,14 +184,16 @@ export default function LoginPage() {
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-5">
                 <Lock className="h-5 w-5 text-gray-500" />
               </div>
+
               <input
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="Password"
-                className="block w-full rounded-xl border border-gray-800 bg-transparent py-[19px] pl-14 pr-14 text-[16px] text-white placeholder:text-gray-600 transition-all focus:border-gray-600 focus:outline-none"
+                className="block w-full rounded-xl border border-gray-800 bg-transparent py-[19px] pl-14 pr-14 text-[16px] text-white placeholder:text-gray-600 transition-all focus:border-yellow-400 focus:outline-none"
                 required
               />
+
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
@@ -168,6 +228,7 @@ export default function LoginPage() {
                     />
                   </svg>
                 </div>
+
                 <span className="text-gray-300">Remember me</span>
               </label>
 
@@ -195,7 +256,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="mt-4 w-full rounded-xl border border-gray-800 bg-transparent py-[18px] text-[16px] font-bold text-white transition-all hover:border-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-4 w-full rounded-xl border border-yellow-400 bg-yellow-400 py-[18px] text-[16px] font-bold text-black transition-all hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isLoading ? "Signing in..." : "Sign in"}
             </button>
@@ -214,7 +275,8 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={handleGoogleLogin}
-                className="flex w-full items-center rounded-xl border border-gray-800 bg-transparent px-6 py-[18px] transition-all hover:border-gray-700"
+                disabled={isLoading}
+                className="flex w-full items-center rounded-xl border border-gray-800 bg-transparent px-6 py-[18px] transition-all hover:border-yellow-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <svg className="h-6 w-6" viewBox="0 0 24 24">
                   <path
@@ -234,6 +296,7 @@ export default function LoginPage() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
+
                 <span className="flex-1 text-center text-[15px] font-bold text-gray-300">
                   Continue with Google
                 </span>
@@ -242,11 +305,13 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={handleAppleLogin}
-                className="flex w-full items-center rounded-xl border border-gray-800 bg-transparent px-6 py-[18px] transition-all hover:border-gray-700"
+                disabled={isLoading}
+                className="flex w-full items-center rounded-xl border border-gray-800 bg-transparent px-6 py-[18px] transition-all hover:border-yellow-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <svg className="h-6 w-6 fill-white" viewBox="0 0 384 512">
                   <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-1.7-111.1zM271 81.1c21.6-27.1 16.9-64.7 16.9-64.7s-34.1 1.5-57.3 28.5c-20.8 24.2-16.1 59.4-16.1 59.4s33.9 4.1 56.5-23.2z" />
                 </svg>
+
                 <span className="flex-1 text-center text-[15px] font-bold text-gray-300">
                   Continue with Apple
                 </span>
@@ -260,7 +325,7 @@ export default function LoginPage() {
               Don&apos;t have an account?{" "}
               <Link
                 href="/signup"
-                className="ml-1 font-bold text-[#22c55e] transition-colors hover:text-[#4ade80]"
+                className="ml-1 font-bold text-yellow-400 transition-colors hover:text-yellow-300"
               >
                 Sign up
               </Link>
@@ -282,10 +347,10 @@ export default function LoginPage() {
         >
           <defs>
             <linearGradient id="outerRingGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="rgba(34,211,238,0.5)" />
-              <stop offset="40%" stopColor="rgba(34,211,238,0.35)" />
-              <stop offset="70%" stopColor="rgba(34,211,238,0.08)" />
-              <stop offset="100%" stopColor="rgba(34,211,238,0)" />
+              <stop offset="0%" stopColor="rgba(250,204,21,0.5)" />
+              <stop offset="40%" stopColor="rgba(250,204,21,0.35)" />
+              <stop offset="70%" stopColor="rgba(250,204,21,0.08)" />
+              <stop offset="100%" stopColor="rgba(250,204,21,0)" />
             </linearGradient>
 
             <filter id="outerGlow" x="-20%" y="-20%" width="140%" height="140%">
@@ -297,10 +362,10 @@ export default function LoginPage() {
             </filter>
 
             <linearGradient id="innerRingGrad" x1="1" y1="1" x2="0" y2="0">
-              <stop offset="0%" stopColor="rgba(34,197,94,0.45)" />
-              <stop offset="35%" stopColor="rgba(34,197,94,0.3)" />
-              <stop offset="65%" stopColor="rgba(34,197,94,0.06)" />
-              <stop offset="100%" stopColor="rgba(34,197,94,0)" />
+              <stop offset="0%" stopColor="rgba(34,211,238,0.45)" />
+              <stop offset="35%" stopColor="rgba(34,211,238,0.3)" />
+              <stop offset="65%" stopColor="rgba(34,211,238,0.06)" />
+              <stop offset="100%" stopColor="rgba(34,211,238,0)" />
             </linearGradient>
 
             <filter id="innerGlow" x="-20%" y="-20%" width="140%" height="140%">
@@ -335,9 +400,9 @@ export default function LoginPage() {
         {/* Dark subtle background ring */}
         <div className="absolute h-[600px] w-[600px] rounded-full border border-white/[0.04]" />
 
-        {/* Orbiting Green Dot */}
+        {/* Orbiting Yellow Dot */}
         <div className="absolute h-[500px] w-[500px] animate-[spin_30s_linear_infinite]">
-          <div className="absolute left-1/2 top-0 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-[#22c55e] shadow-[0_0_20px_4px_rgba(34,197,94,0.6)]" />
+          <div className="absolute left-1/2 top-0 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-yellow-400 shadow-[0_0_20px_4px_rgba(250,204,21,0.6)]" />
         </div>
 
         {/* Orbiting Cyan Dot */}
