@@ -263,6 +263,8 @@ export default function TradeLogBuilderWorkspace({
   );
 
   const [logName, setLogName] = useState("");
+  const [initialBalance, setInitialBalance] = useState("");
+  const [accountCurrency, setAccountCurrency] = useState("USD");
   const [selectedHeaders, setSelectedHeaders] = useState(requiredHeaders);
   const [customManualHeaderName, setCustomManualHeaderName] = useState("");
 
@@ -556,6 +558,12 @@ export default function TradeLogBuilderWorkspace({
         if (template && mounted) {
           setIsEditMode(true);
           setLogName(template.logName || "");
+          setInitialBalance(
+            template.initialBalance !== undefined && template.initialBalance !== null
+              ? String(template.initialBalance)
+              : ""
+          );
+          setAccountCurrency(template.accountCurrency || "USD");
           setSelectedHeaders(
             normalizeHeaders(template.headers || requiredHeaders)
           );
@@ -572,6 +580,12 @@ export default function TradeLogBuilderWorkspace({
       if (found && mounted) {
         setIsEditMode(true);
         setLogName(found.logName || "");
+        setInitialBalance(
+          found.initialBalance !== undefined && found.initialBalance !== null
+            ? String(found.initialBalance)
+            : ""
+        );
+        setAccountCurrency(found.accountCurrency || "USD");
         setSelectedHeaders(normalizeHeaders(found.headers || requiredHeaders));
       }
     }
@@ -989,6 +1003,13 @@ export default function TradeLogBuilderWorkspace({
       return;
     }
 
+    const parsedInitialBalance = Number(initialBalance || 0);
+
+    if (initialBalance && !Number.isFinite(parsedInitialBalance)) {
+      setStatusMessage("Enter a valid initial balance.", true);
+      return;
+    }
+
     if (selectedHeaders.length === 0) {
       setStatusMessage("Add at least one header before saving the log.", true);
       return;
@@ -1014,6 +1035,10 @@ export default function TradeLogBuilderWorkspace({
       const templateObject = {
         id: finalLogId,
         logName: logName.trim(),
+        initialBalance: Number.isFinite(parsedInitialBalance)
+          ? parsedInitialBalance
+          : 0,
+        accountCurrency: accountCurrency || "USD",
         headers: normalizeHeaders(selectedHeaders),
         createdAt: new Date().toISOString(),
       };
@@ -1136,7 +1161,7 @@ export default function TradeLogBuilderWorkspace({
       </Panel>
 
       <Panel className="p-6">
-        <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+        <div className="grid gap-4 md:grid-cols-[1fr_180px_150px_auto]">
           <div>
             <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
               Trade Log Name
@@ -1149,6 +1174,42 @@ export default function TradeLogBuilderWorkspace({
               placeholder="Example: Gold Scalping Log"
               className="w-full rounded-xl border border-cyan-400/10 bg-[#0F0F1F] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
             />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Initial Balance
+            </label>
+
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={initialBalance}
+              onChange={(event) => setInitialBalance(event.target.value)}
+              placeholder="1000"
+              className="w-full rounded-xl border border-cyan-400/10 bg-[#0F0F1F] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Currency
+            </label>
+
+            <select
+              value={accountCurrency}
+              onChange={(event) => setAccountCurrency(event.target.value)}
+              className="w-full rounded-xl border border-cyan-400/10 bg-[#0F0F1F] px-4 py-3 text-sm text-white outline-none focus:border-cyan-400"
+            >
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="NGN">NGN</option>
+              <option value="JPY">JPY</option>
+              <option value="CAD">CAD</option>
+              <option value="AUD">AUD</option>
+            </select>
           </div>
 
           <div className="flex items-end">
@@ -1168,6 +1229,10 @@ export default function TradeLogBuilderWorkspace({
             </button>
           </div>
         </div>
+
+        <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          Initial balance and currency are used by Performance to calculate balance curve and percentage return for this trade log.
+        </p>
 
         {builderMessage ? (
           <p

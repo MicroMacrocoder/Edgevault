@@ -4,9 +4,9 @@ import { createClient } from "@supabase/supabase-js";
 // This creates the Supabase client connection for the whole app
 export const supabase = createClient(
   // This is your Supabase project URL
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
   // This is your public Supabase key
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 );
 
 // This uploads one chart image to Supabase Storage
@@ -619,6 +619,8 @@ export async function getUserTradeLogTemplates(userId) {
     databaseTemplateId: template.id,
     logName: template.log_name || "",
     headers: Array.isArray(template.headers_json) ? template.headers_json : [],
+    initialBalance: Number(template.initial_balance || 0),
+    accountCurrency: template.account_currency || "USD",
     createdAt: template.created_at,
     updatedAt: template.updated_at,
   }));
@@ -646,12 +648,19 @@ export async function getSingleTradeLogTemplate(userId, templateClientId) {
 
 // This saves or updates one trade log template for one logged-in user
 export async function saveTradeLogTemplateToSupabase(userId, template) {
+  // This safely converts the starting balance into a number
+  const parsedInitialBalance = Number(template.initialBalance || 0);
+
   // This creates the payload for the database
   const templatePayload = {
     user_id: userId,
     client_id: String(template.id),
     log_name: template.logName || "",
     headers_json: template.headers || [],
+    initial_balance: Number.isFinite(parsedInitialBalance)
+      ? parsedInitialBalance
+      : 0,
+    account_currency: template.accountCurrency || "USD",
     updated_at: new Date().toISOString(),
   };
 
@@ -776,6 +785,46 @@ export async function getTradeLogRows(userId, templateClientId) {
   }));
 
   return { error: null, rows };
+}
+
+// This loads every saved trade log and every row inside each log for Performance Metrics
+export async function getUserTradeLogsWithRows(userId) {
+  // This loads all saved trade log templates first
+  const { error: templatesError, templates } = await getUserTradeLogTemplates(
+    userId
+  );
+
+  // This handles template loading errors
+  if (templatesError) {
+    return { error: templatesError, tradeLogs: [] };
+  }
+
+  // This returns early if no trade logs exist
+  if (!templates || templates.length === 0) {
+    return { error: null, tradeLogs: [] };
+  }
+
+  // This loads every row for every template
+  const tradeLogsWithRows = [];
+
+  for (const template of templates) {
+    const { error: rowsError, rows } = await getTradeLogRows(
+      userId,
+      template.id
+    );
+
+    if (rowsError) {
+      console.log("GET ROWS FOR PERFORMANCE ERROR:", rowsError.message);
+      return { error: rowsError, tradeLogs: [] };
+    }
+
+    tradeLogsWithRows.push({
+      ...template,
+      rows: rows || [],
+    });
+  }
+
+  return { error: null, tradeLogs: tradeLogsWithRows };
 }
 
 // This saves or updates one trade log row

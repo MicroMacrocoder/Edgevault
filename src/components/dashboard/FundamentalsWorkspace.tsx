@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
@@ -11,7 +11,7 @@ import COTAnalysis from "@/components/fundamentals/COTAnalysis";
 import EconomicCalendar from "@/components/fundamentals/EconomicCalendar";
 import VolumeOITracker from "@/components/fundamentals/VolumeOITracker";
 
-type FundamentalsTab = "hub" | "calendar" | "cot" | "volume-oi";
+export type FundamentalsTab = "hub" | "calendar" | "cot" | "volume-oi";
 
 const fundamentalTabs = [
   {
@@ -40,8 +40,16 @@ const fundamentalTabs = [
   },
 ];
 
-export default function FundamentalsWorkspace() {
-  const [activeTab, setActiveTab] = useState<FundamentalsTab>("hub");
+export default function FundamentalsWorkspace({
+  initialTab = "hub",
+}: {
+  initialTab?: FundamentalsTab;
+}) {
+  const [activeTab, setActiveTab] = useState<FundamentalsTab>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   return (
     <div className="space-y-5">
@@ -86,6 +94,7 @@ export default function FundamentalsWorkspace() {
                 </div>
 
                 <h3 className="text-sm font-bold text-white">{tab.label}</h3>
+
                 <p className="mt-2 text-xs leading-relaxed text-slate-400">
                   {tab.description}
                 </p>
@@ -101,13 +110,16 @@ export default function FundamentalsWorkspace() {
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-500/15 text-cyan-400">
               <CalendarDays className="h-6 w-6" />
             </div>
+
             <h2 className="mt-5 text-xl font-bold text-white">
               Economic Calendar
             </h2>
+
             <p className="mt-3 text-sm leading-relaxed text-slate-400">
               Track market-moving events, impact levels, forecast values,
               previous values, and actual releases.
             </p>
+
             <button
               type="button"
               onClick={() => setActiveTab("calendar")}
@@ -121,13 +133,16 @@ export default function FundamentalsWorkspace() {
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400">
               <LineChart className="h-6 w-6" />
             </div>
+
             <h2 className="mt-5 text-xl font-bold text-white">
               Commitment of Traders
             </h2>
+
             <p className="mt-3 text-sm leading-relaxed text-slate-400">
               Analyze commercial hedgers, non-commercial speculators,
               non-reportable traders, and open interest positioning.
             </p>
+
             <button
               type="button"
               onClick={() => setActiveTab("cot")}
@@ -141,13 +156,16 @@ export default function FundamentalsWorkspace() {
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-yellow-500/15 text-yellow-400">
               <BarChart3 className="h-6 w-6" />
             </div>
+
             <h2 className="mt-5 text-xl font-bold text-white">
               Volume & Open Interest
             </h2>
+
             <p className="mt-3 text-sm leading-relaxed text-slate-400">
               Monitor daily futures participation using volume, open interest,
               numerical change, percentage change, and moving averages.
             </p>
+
             <button
               type="button"
               onClick={() => setActiveTab("volume-oi")}
