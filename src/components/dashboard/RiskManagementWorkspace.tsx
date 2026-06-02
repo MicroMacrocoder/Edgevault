@@ -2,47 +2,17 @@
 
 import { useMemo, useState } from "react";
 
-type Direction = "buy" | "sell";
-
-type PairSymbol =
-  | "EURUSD"
-  | "GBPUSD"
-  | "AUDUSD"
-  | "NZDUSD"
-  | "USDCHF"
-  | "USDCAD"
-  | "USDJPY"
-  | "XAUUSD"
-  | "XAGUSD"
-  | "US30";
-
-type PairSettings = {
-  label: string;
-  pipValuePerLot: number;
-  pipLabel: string;
-  placeholder: string;
-};
-
-type ExposureEntry = {
-  id: number;
-  pair: PairSymbol;
-  direction: Direction;
-  entryPrice: string;
-  lotSize: string;
-};
-
-const PAIRS: PairSymbol[] = [
-  "EURUSD",
-  "GBPUSD",
-  "AUDUSD",
-  "NZDUSD",
-  "USDCHF",
-  "USDCAD",
-  "USDJPY",
-  "XAUUSD",
-  "XAGUSD",
-  "US30",
-];
+import {
+  PAIRS,
+  calculateExposure,
+  getPairSettings,
+  money,
+  number,
+  toNumber,
+  type Direction,
+  type ExposureEntry,
+  type PairSymbol,
+} from "@/lib/riskManagement";
 
 function Panel({
   children,
@@ -75,65 +45,8 @@ function inputClassName() {
   return "mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20";
 }
 
-function selectClassName() {
-  return inputClassName();
-}
-
-function getPairSettings(pair: PairSymbol): PairSettings {
-  if (pair === "USDJPY") {
-    return {
-      label: "JPY Pair",
-      pipValuePerLot: 10,
-      pipLabel: "pips",
-      placeholder: "155.000",
-    };
-  }
-
-  if (pair === "XAUUSD") {
-    return {
-      label: "Gold",
-      pipValuePerLot: 100,
-      pipLabel: "points",
-      placeholder: "2350.00",
-    };
-  }
-
-  if (pair === "XAGUSD") {
-    return {
-      label: "Silver",
-      pipValuePerLot: 10,
-      pipLabel: "points / pips",
-      placeholder: "30.000",
-    };
-  }
-
-  if (pair === "US30") {
-    return {
-      label: "Index",
-      pipValuePerLot: 10,
-      pipLabel: "points",
-      placeholder: "39000",
-    };
-  }
-
-  return {
-    label: "Forex Major",
-    pipValuePerLot: 10,
-    pipLabel: "pips",
-    placeholder: "1.08500",
-  };
-}
-
-function toNumber(value: string | number) {
-  return Number(value) || 0;
-}
-
-function money(value: number | string) {
-  return `$${Number(value || 0).toFixed(2)}`;
-}
-
-function number(value: number | string) {
-  return Number(value || 0).toFixed(2);
+function tableInputClassName() {
+  return "w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400";
 }
 
 export default function RiskManagementWorkspace() {
@@ -206,103 +119,14 @@ export default function RiskManagementWorkspace() {
   }
 
   const exposureResult = useMemo(() => {
-    const accountBalance = toNumber(balance);
-    const riskBucket = accountBalance * (toNumber(riskPercent) / 100);
-    const targetProfit = toNumber(targetAmount);
-    const targetEquity = accountBalance + targetProfit;
-
-    const validEntries = entries
-      .map((entry) => {
-        const pairSettings = getPairSettings(entry.pair);
-        const lotSize = toNumber(entry.lotSize);
-        const entryPrice = toNumber(entry.entryPrice);
-        const pipValue = lotSize * pairSettings.pipValuePerLot;
-
-        return {
-          ...entry,
-          lotSize,
-          entryPrice,
-          pairLabel: pairSettings.label,
-          pipLabel: pairSettings.pipLabel,
-          pipValue,
-        };
-      })
-      .filter((entry) => entry.lotSize > 0);
-
-    const totalLotSize = validEntries.reduce(
-      (sum, entry) => sum + entry.lotSize,
-      0
-    );
-
-    const combinedPipValue = validEntries.reduce(
-      (sum, entry) => sum + entry.pipValue,
-      0
-    );
-
-    const distanceToDanger =
-      combinedPipValue > 0 ? riskBucket / combinedPipValue : 0;
-
-    const distanceToTarget =
-      combinedPipValue > 0 ? targetProfit / combinedPipValue : 0;
-
-    const riskUsedPercent =
-      accountBalance > 0 ? (riskBucket / accountBalance) * 100 : 0;
-
-    const targetReturnPercent =
-      accountBalance > 0 ? (targetProfit / accountBalance) * 100 : 0;
-
-    const maxAllowedEntries = Math.max(1, Math.floor(toNumber(maxEntries)));
-
-    const entryUsagePercent =
-      maxAllowedEntries > 0
-        ? (validEntries.length / maxAllowedEntries) * 100
-        : 0;
-
-    const pairBreakdown = PAIRS.map((pair) => {
-      const pairEntries = validEntries.filter((entry) => entry.pair === pair);
-      const settings = getPairSettings(pair);
-
-      const pairLots = pairEntries.reduce(
-        (sum, entry) => sum + entry.lotSize,
-        0
-      );
-
-      const pairPipValue = pairEntries.reduce(
-        (sum, entry) => sum + entry.pipValue,
-        0
-      );
-
-      return {
-        pair,
-        label: settings.label,
-        pipLabel: settings.pipLabel,
-        entries: pairEntries.length,
-        totalLots: pairLots,
-        pipValue: pairPipValue,
-        buyEntries: pairEntries.filter((entry) => entry.direction === "buy")
-          .length,
-        sellEntries: pairEntries.filter((entry) => entry.direction === "sell")
-          .length,
-      };
-    }).filter((item) => item.entries > 0);
-
-    return {
-      accountBalance,
-      riskBucket,
-      targetProfit,
-      targetEquity,
-      validEntries,
-      totalLotSize,
-      combinedPipValue,
-      distanceToDanger,
-      distanceToTarget,
-      riskUsedPercent,
-      targetReturnPercent,
-      maxAllowedEntries,
-      entryUsagePercent,
-      pairBreakdown,
-    };
-  }, [balance, entries, maxEntries, riskPercent, targetAmount]);
+    return calculateExposure({
+      balance,
+      riskPercent,
+      targetAmount,
+      maxEntries,
+      entries,
+    });
+  }, [balance, riskPercent, targetAmount, maxEntries, entries]);
 
   return (
     <div className="space-y-5">
@@ -396,10 +220,10 @@ export default function RiskManagementWorkspace() {
             <h2 className="mt-2 text-xl font-bold text-white">Exposure Map</h2>
 
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">
-              This section no longer uses portfolio allocation, leverage,
-              volatility, weighted average entry, target price, or danger price.
-              It focuses on account survival and profit distance using total lot
-              size and combined pip value.
+              This model uses the account balance as the active allocation.
+              Risk bucket is calculated from the balance and risk percentage.
+              Target amount is profit, and target equity is calculated
+              automatically.
             </p>
           </div>
 
@@ -583,7 +407,7 @@ export default function RiskManagementWorkspace() {
                             event.target.value as PairSymbol
                           )
                         }
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400"
+                        className={tableInputClassName()}
                       >
                         {PAIRS.map((pair) => (
                           <option key={pair} value={pair}>
@@ -605,7 +429,7 @@ export default function RiskManagementWorkspace() {
                             event.target.value as Direction
                           )
                         }
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400"
+                        className={tableInputClassName()}
                       >
                         <option value="buy">Buy</option>
                         <option value="sell">Sell</option>
@@ -620,7 +444,7 @@ export default function RiskManagementWorkspace() {
                         }
                         type="number"
                         placeholder={settings.placeholder}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400"
+                        className={tableInputClassName()}
                       />
                     </td>
 
@@ -632,7 +456,7 @@ export default function RiskManagementWorkspace() {
                         }
                         type="number"
                         placeholder="0.01"
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400"
+                        className={tableInputClassName()}
                       />
                     </td>
 
