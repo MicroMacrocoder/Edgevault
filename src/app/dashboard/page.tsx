@@ -309,6 +309,13 @@ const sectionDetails: Record<
       "This area contains position sizing, risk rules, and account protection tools.",
     actions: ["Position size", "Risk calculator", "Drawdown control"],
   },
+  "dynamic-risk-engine": {
+    title: "Dynamic Risk Engine",
+    subtitle: "Advanced portfolio-based position sizing and risk control.",
+    description:
+      "Multi-style portfolio framework with auto lot sizing, live P&L, health monitoring, and entry zone planning.",
+    actions: ["Portfolio framework", "Auto lot sizing", "Live P&L", "Entry zones"],
+  },
   "connect-platform": {
     title: "Connect Platform",
     subtitle: "Link your broker or MT5 workspace.",
