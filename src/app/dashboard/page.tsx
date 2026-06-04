@@ -25,6 +25,7 @@ import ConnectPlatformWorkspace from "@/components/dashboard/ConnectPlatformWork
 import NewEntryWorkspace from "@/components/dashboard/NewEntryWorkspace";
 import JournalWorkspace from "@/components/dashboard/JournalWorkspace";
 import PerformanceWorkspace from "@/components/dashboard/PerformanceWorkspace";
+import DynamicRiskEngineWorkspace from "@/components/dashboard/DynamicRiskEngineWorkspace";
 import {
   Area,
   AreaChart,
@@ -75,6 +76,7 @@ type DashboardSection =
   | "connect-platform"
   | "reports"
   | "performance"
+  | "dynamic-risk-engine"
   | "settings";
 
 const performanceData = [
@@ -186,6 +188,11 @@ const sidebarItems = [
     label: "Risk Management",
     section: "risk-management" as DashboardSection,
     icon: ShieldCheck,
+  },
+  {
+    label: "Dynamic Risk Engine",
+    section: "dynamic-risk-engine" as DashboardSection,
+    icon: Calculator,
   },
   {
     label: "Connect Platform",
@@ -1939,6 +1946,8 @@ export default function DashboardPage() {
               <PerformanceWorkspace />
             ) : selectedSection === "fundamentals" ? (
               <FundamentalsWorkspace initialTab={selectedFundamentalsTab} />
+            ) : selectedSection === "dynamic-risk-engine" ? (
+              <DynamicRiskEngineWorkspace />
             ) : selectedSection === "risk-management" ? (
               <RiskManagementWorkspace />
             ) : selectedSection === "connect-platform" ? (
