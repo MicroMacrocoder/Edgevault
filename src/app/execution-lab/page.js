@@ -46,7 +46,7 @@ export default function ExecutionLabPage() {
           </div>
 
           {/* Feature Cards */}
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
+          <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
 
             {/* Risk Management */}
             <Link
@@ -68,6 +68,20 @@ export default function ExecutionLabPage() {
               <p className="mt-2 text-sm text-gray-700">
                 Plan stop loss, take profit, partial closes, and how you manage trades after entry.
               </p>
+            </Link>
+
+            {/* Dynamic Risk Engine */}
+            <Link
+              href="/execution-lab/dynamic-risk-engine"
+              className="rounded-xl bg-gradient-to-br from-gray-900 to-gray-800 p-5 shadow-sm transition hover:shadow-lg hover:scale-[1.02] border border-cyan-900/30"
+            >
+              <h2 className="text-lg font-bold text-cyan-400">Dynamic Risk Engine</h2>
+              <p className="mt-2 text-sm text-gray-300">
+                4-style portfolio framework with auto lot sizing, live P&L tracking, zone visualization, and smart style switching.
+              </p>
+              <span className="mt-3 inline-block rounded-full bg-cyan-950/50 border border-cyan-700/30 px-2.5 py-0.5 text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
+                Advanced
+              </span>
             </Link>
 
           </div>
