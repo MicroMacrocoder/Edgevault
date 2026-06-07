@@ -26,6 +26,16 @@ import NewEntryWorkspace from "@/components/dashboard/NewEntryWorkspace";
 import JournalWorkspace from "@/components/dashboard/JournalWorkspace";
 import PerformanceWorkspace from "@/components/dashboard/PerformanceWorkspace";
 import DynamicRiskEngineWorkspace from "@/components/dashboard/DynamicRiskEngineWorkspace";
+import DashboardCustomizer, {
+  loadWidgetPreferences,
+  saveWidgetPreferences,
+  getVisibleWidgets,
+  type DashboardWidgetConfig,
+  type DashboardWidgetId,
+} from "@/components/dashboard/DashboardCustomizer";
+import WatchlistWidget from "@/components/dashboard/WatchlistWidget";
+import PerformanceCalendarWidget from "@/components/dashboard/PerformanceCalendarWidget";
+import CurrencyStrengthWidget from "@/components/dashboard/CurrencyStrengthWidget";
 import {
   Area,
   AreaChart,
@@ -815,6 +825,9 @@ function OverviewSection({
   onSelectSection: (section: DashboardSection) => void;
   onOpenFundamentalsTab: (tab: FundamentalsTab) => void;
 }) {
+  const [widgetPrefs, setWidgetPrefs] = useState<DashboardWidgetConfig[]>(() => loadWidgetPreferences());
+  const visibleWidgets = getVisibleWidgets(widgetPrefs);
+
   const [tradeLogs, setTradeLogs] = useState<TradeLogWithRows[]>([]);
   const [selectedTradeLogId, setSelectedTradeLogId] = useState("all");
   const [dateRange, setDateRange] = useState<PerformanceDateRange>("ALL");
@@ -1125,7 +1138,51 @@ function OverviewSection({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+      {/* Dashboard Customizer */}
+      <DashboardCustomizer widgets={widgetPrefs} onUpdate={setWidgetPrefs} />
+
+      {/* Currency Strength Widget */}
+      {visibleWidgets.includes("currency-strength") && (
+        <DashboardCard className="p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">Currency Strength</p>
+              <h2 className="mt-1 font-mono text-lg font-bold text-white">Futures-Based Strength</h2>
+            </div>
+            <button onClick={() => onOpenFundamentalsTab("currency-strength")} className="font-mono text-xs text-gray-500 hover:text-yellow-400 transition">Open</button>
+          </div>
+          <CurrencyStrengthWidget />
+        </DashboardCard>
+      )}
+
+      {/* Watchlist Widget */}
+      {visibleWidgets.includes("watchlist") && (
+        <DashboardCard className="p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-green-400">Watchlist</p>
+              <h2 className="mt-1 font-mono text-lg font-bold text-white">Pair Overview</h2>
+            </div>
+          </div>
+          <WatchlistWidget />
+        </DashboardCard>
+      )}
+
+      {/* Performance Calendar Widget */}
+      {visibleWidgets.includes("performance-calendar") && (
+        <DashboardCard className="p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-yellow-400">Performance</p>
+              <h2 className="mt-1 font-mono text-lg font-bold text-white">Trade Calendar</h2>
+            </div>
+            <button onClick={() => onSelectSection("performance")} className="font-mono text-xs text-gray-500 hover:text-yellow-400 transition">Open</button>
+          </div>
+          <PerformanceCalendarWidget />
+        </DashboardCard>
+      )}
+
+      {visibleWidgets.includes("cot") && (<div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         <DashboardCard className="p-5">
           <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -1293,9 +1350,9 @@ function OverviewSection({
             )}
           </div>
         </DashboardCard>
-      </div>
+      </div>)}
 
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+      {visibleWidgets.includes("performance") && (<div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         <DashboardCard className="p-5">
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <select
@@ -1547,8 +1604,9 @@ function OverviewSection({
             </div>
           </DashboardCard>
         </div>
-      </div>
+      </div>)}
 
+      {visibleWidgets.includes("quick-actions") && (
       <DashboardCard className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ["Workspace", "Plan and save analysis", "journal"],
@@ -1570,7 +1628,7 @@ function OverviewSection({
             </p>
           </button>
         ))}
-      </DashboardCard>
+      </DashboardCard>)}
     </div>
   );
 }
@@ -1784,44 +1842,34 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let isMounted = true;
-
     async function checkDashboardAccess() {
       const { data } = await supabase.auth.getSession();
       const user = data?.session?.user ?? null;
-
       if (!isMounted) {
         return;
       }
-
       if (!user) {
         router.replace("/");
         return;
       }
-
       setCurrentUserEmail(user.email || "");
       setIsCheckingSession(false);
     }
-
     checkDashboardAccess();
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!isMounted) {
         return;
       }
-
       const user = session?.user ?? null;
-
       if (!user) {
         router.replace("/");
         return;
       }
-
       setCurrentUserEmail(user.email || "");
       setIsCheckingSession(false);
     });
-
     return () => {
       isMounted = false;
       subscription.unsubscribe();

@@ -6,12 +6,14 @@ import {
   CalendarDays,
   LineChart,
   Newspaper,
+  TrendingUp,
 } from "lucide-react";
 import COTAnalysis from "@/components/fundamentals/COTAnalysis";
 import EconomicCalendar from "@/components/fundamentals/EconomicCalendar";
 import VolumeOITracker from "@/components/fundamentals/VolumeOITracker";
+import CurrencyStrength from "@/components/fundamentals/CurrencyStrength";
 
-export type FundamentalsTab = "hub" | "calendar" | "cot" | "volume-oi";
+export type FundamentalsTab = "hub" | "calendar" | "cot" | "volume-oi" | "currency-strength";
 
 const fundamentalTabs = [
   {
@@ -37,6 +39,12 @@ const fundamentalTabs = [
     value: "volume-oi" as FundamentalsTab,
     icon: BarChart3,
     description: "Monitor futures volume and open interest.",
+  },
+  {
+    label: "Currency Strength",
+    value: "currency-strength" as FundamentalsTab,
+    icon: TrendingUp,
+    description: "Compare relative strength across major currencies from futures positioning.",
   },
 ];
 
@@ -192,6 +200,12 @@ export default function FundamentalsWorkspace({
       {activeTab === "volume-oi" ? (
         <div className="overflow-hidden rounded-2xl border border-slate-800/90 bg-slate-950/80">
           <VolumeOITracker />
+        </div>
+      ) : null}
+
+      {activeTab === "currency-strength" ? (
+        <div className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-4">
+          <CurrencyStrength />
         </div>
       ) : null}
     </div>

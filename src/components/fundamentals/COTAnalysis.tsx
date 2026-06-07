@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import COTNarrative from "@/components/fundamentals/COTNarrative";
+import type { VolumeOIReport } from "@/types/volumeOi";
 import {
   CartesianGrid,
   Legend,
@@ -80,8 +82,10 @@ export default function COTAnalysis() {
   const [movingAveragePeriod, setMovingAveragePeriod] = useState(10);
   const [startDate, setStartDate] = useState("2025-01-01");
   const [reports, setReports] = useState<COTReport[]>([]);
+  const [volumeReports, setVolumeReports] = useState<VolumeOIReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [showNarrative, setShowNarrative] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
@@ -120,6 +124,19 @@ export default function COTAnalysis() {
     }
 
     loadCOTReports();
+
+    async function loadVolumeOI() {
+      try {
+        const response = await fetch("/api/volume-oi?symbol=" + selectedSymbol, { cache: "no-store" });
+        const result = await response.json();
+        if (isMounted && result.reports) {
+          setVolumeReports(result.reports);
+        }
+      } catch {
+        // Volume data is optional for narrative
+      }
+    }
+    loadVolumeOI();
 
     return () => {
       isMounted = false;
@@ -490,6 +507,30 @@ export default function COTAnalysis() {
             </div>
           </div>
         </>
+      )}
+
+      {/* COT Narrative Engine */}
+      {!loading && reports.length >= 3 && (
+        <div className="mt-8">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-mono text-lg font-bold text-white">
+              Market Narrative
+            </h3>
+            <button
+              onClick={() => setShowNarrative(!showNarrative)}
+              className="rounded-lg border border-gray-800 bg-black px-4 py-2 font-mono text-xs uppercase text-gray-400 hover:text-white transition"
+            >
+              {showNarrative ? "Hide" : "Show"} Analysis
+            </button>
+          </div>
+          {showNarrative && (
+            <COTNarrative
+              cotReports={reports}
+              volumeReports={volumeReports}
+              symbol={selectedSymbol}
+            />
+          )}
+        </div>
       )}
     </section>
   );
