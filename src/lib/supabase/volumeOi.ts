@@ -13,7 +13,7 @@ function getSupabaseServerClient() {
   }
 
   if (!supabaseServiceRoleKey) {
-    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+    return null;
   }
 
   return createClient(supabaseUrl, supabaseServiceRoleKey);
@@ -23,6 +23,11 @@ export async function upsertVolumeOIReports(
   reports: VolumeOIExternalReport[]
 ) {
   const supabaseServer = getSupabaseServerClient();
+
+  if (!supabaseServer) {
+    console.warn("Supabase service role not configured, skipping Volume/OI upsert");
+    return { error: null };
+  }
 
   const rows = reports.map((report) => ({
     symbol: report.symbol,
@@ -55,6 +60,11 @@ export async function upsertVolumeOIReports(
 
 export async function getStoredVolumeOIReports(symbol?: string) {
   const supabaseServer = getSupabaseServerClient();
+
+  if (!supabaseServer) {
+    console.warn("Supabase service role not configured, returning empty Volume/OI reports");
+    return { error: null, reports: [] };
+  }
 
   let query = supabaseServer
     .from("volume_oi_data")

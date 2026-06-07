@@ -10,7 +10,7 @@ function getSupabaseServerClient() {
   }
 
   if (!supabaseServiceRoleKey) {
-    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+    return null;
   }
 
   return createClient(supabaseUrl, supabaseServiceRoleKey);
@@ -18,6 +18,11 @@ function getSupabaseServerClient() {
 
 export async function upsertCOTReports(reports: COTExternalReport[]) {
   const supabaseServer = getSupabaseServerClient();
+
+  if (!supabaseServer) {
+    console.warn("Supabase service role not configured, skipping COT upsert");
+    return { error: null };
+  }
 
   const rows = reports.map((report) => ({
     symbol: report.symbol,
@@ -58,6 +63,11 @@ export async function upsertCOTReports(reports: COTExternalReport[]) {
 
 export async function getStoredCOTReports(symbol?: string) {
   const supabaseServer = getSupabaseServerClient();
+
+  if (!supabaseServer) {
+    console.warn("Supabase service role not configured, returning empty COT reports");
+    return { error: null, reports: [] };
+  }
 
   let query = supabaseServer
     .from("cot_reports")

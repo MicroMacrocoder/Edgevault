@@ -693,7 +693,7 @@ function DashboardWidgetHeader({
 }
 
 
-type FundamentalsTab = "hub" | "calendar" | "cot" | "volume-oi";
+type FundamentalsTab = "hub" | "calendar" | "cot" | "volume-oi" | "currency-strength";
 
 type DashboardCOTReport = {
   id?: string;

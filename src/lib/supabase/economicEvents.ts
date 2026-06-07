@@ -9,16 +9,21 @@ if (!supabaseUrl) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 }
 
-if (!supabaseServiceRoleKey) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-}
+let supabaseServer: any = null;
 
-const supabaseServer = createClient(supabaseUrl, supabaseServiceRoleKey);
+if (supabaseServiceRoleKey) {
+  supabaseServer = createClient(supabaseUrl, supabaseServiceRoleKey);
+}
 
 /**
  * Sync economic events to Supabase
  */
 export async function upsertEconomicEvents(events: EconomicEvent[]) {
+  if (!supabaseServer) {
+    console.warn("Supabase service role not configured, skipping upsert");
+    return { error: null };
+  }
+
   const rows = events.map((event) => ({
     external_id: event.id,
     title: event.indicator,
@@ -51,6 +56,11 @@ export async function upsertEconomicEvents(events: EconomicEvent[]) {
  * Retrieve stored events from Supabase
  */
 export async function getStoredEconomicEvents() {
+  if (!supabaseServer) {
+    console.warn("Supabase service role not configured, returning empty events");
+    return { error: null, events: [] };
+  }
+
   const { data, error } = await supabaseServer
     .from("economic_events")
     .select("*")
