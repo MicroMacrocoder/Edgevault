@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { TrendingUp, TrendingDown, Minus, ExternalLink } from "lucide-react";
 
 interface CurrencyData {
   currency: string;
@@ -22,6 +23,7 @@ const CURRENCY_COLORS: Record<string, string> = {
 };
 
 export default function CurrencyStrengthWidget() {
+  const router = useRouter();
   const [currencies, setCurrencies] = useState<CurrencyData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -75,7 +77,17 @@ export default function CurrencyStrengthWidget() {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-gray-500 uppercase tracking-wider">Click to view full analysis →</p>
+        <button
+          onClick={() => router.push('/dashboard?section=fundamentals&tab=currency-strength')}
+          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-yellow-400 hover:bg-gray-900 transition"
+        >
+          <ExternalLink className="h-3 w-3" />
+          Open
+        </button>
+      </div>
       {currencies.map((item) => {
         const color = CURRENCY_COLORS[item.currency] || "#9ca3af";
         const barWidth = Math.abs(item.strength);
