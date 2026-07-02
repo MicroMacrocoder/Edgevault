@@ -1841,25 +1841,30 @@ export default function DashboardPage() {
   useEffect(() => {
     let isMounted = true;
     async function checkDashboardAccess() {
-      // Check for demo mode environment variable
-      const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
-      if (isDemoMode) {
-        setCurrentUserEmail("demo@edgevault.local");
+      try {
+        const { data } = await supabase.auth.getSession();
+        const user = data?.session?.user ?? null;
+        
+        if (!isMounted) {
+          return;
+        }
+        
+        if (!user) {
+          // Allow demo access if no user is logged in
+          setCurrentUserEmail("demo@edgevault.local");
+          setIsCheckingSession(false);
+          return;
+        }
+        
+        setCurrentUserEmail(user.email || "");
         setIsCheckingSession(false);
-        return;
+      } catch (error) {
+        // If there's an error checking session, allow demo access
+        if (isMounted) {
+          setCurrentUserEmail("demo@edgevault.local");
+          setIsCheckingSession(false);
+        }
       }
-      
-      const { data } = await supabase.auth.getSession();
-      const user = data?.session?.user ?? null;
-      if (!isMounted) {
-        return;
-      }
-      if (!user) {
-        router.replace("/");
-        return;
-      }
-      setCurrentUserEmail(user.email || "");
-      setIsCheckingSession(false);
     }
     checkDashboardAccess();
     const {
