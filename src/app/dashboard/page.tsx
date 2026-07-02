@@ -1841,10 +1841,10 @@ export default function DashboardPage() {
   useEffect(() => {
     let isMounted = true;
     async function checkDashboardAccess() {
-      // Development mode: Allow access without authentication
-      const isDevelopment = process.env.NODE_ENV === 'development';
-      if (isDevelopment) {
-        setCurrentUserEmail("dev@edgevault.local");
+      // Check for demo mode environment variable
+      const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+      if (isDemoMode) {
+        setCurrentUserEmail("demo@edgevault.local");
         setIsCheckingSession(false);
         return;
       }

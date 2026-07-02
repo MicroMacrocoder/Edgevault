@@ -35,7 +35,14 @@ export function useCurrencyStrength() {
       if (!response.ok) throw new Error('Failed to fetch currency strength');
 
       const result = await response.json();
-      const strengthData = result.data || [];
+      
+      // Transform API response to component format
+      const strengthData = Object.entries(result.strength || {}).map(([currency, strength]) => ({
+        currency,
+        strength: strength as number,
+        trend: (strength as number) > 0 ? 'up' : (strength as number) < 0 ? 'down' : 'neutral',
+        lastUpdate: new Date(result.timestamp),
+      }));
 
       // Cache the result (browser only)
       if (typeof window !== 'undefined') {

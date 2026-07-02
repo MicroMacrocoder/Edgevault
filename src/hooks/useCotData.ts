@@ -37,12 +37,21 @@ export function useCotData(market?: string) {
       }
 
       // Fetch from API
-      const url = market ? `/api/cot-data?market=${market}` : '/api/cot-data';
+      const url = market ? `/api/cot?symbol=${market}` : '/api/cot';
       const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch COT data');
 
       const result = await response.json();
-      const cotData = result.data || [];
+      
+      // Transform API response to component format
+      const cotData = (result.reports || []).map((report: any) => ({
+        market: report.symbol || report.currency,
+        commercialBias: report.commercial_net > 0 ? 'bullish' : report.commercial_net < 0 ? 'bearish' : 'neutral',
+        commercialNetPosition: report.commercial_net,
+        retailBias: report.noncommercial_net > 0 ? 'bullish' : report.noncommercial_net < 0 ? 'bearish' : 'neutral',
+        retailNetPosition: report.noncommercial_net,
+        lastUpdate: new Date(report.updated_at || report.report_date),
+      }));
 
       // Cache the result (browser only)
       if (typeof window !== 'undefined') {

@@ -37,12 +37,37 @@ export function useVolumeOiData(market?: string) {
       }
 
       // Fetch from API
-      const url = market ? `/api/volume-oi?market=${market}` : '/api/volume-oi';
+      const url = market ? `/api/volume-oi?symbol=${market}` : '/api/volume-oi';
       const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch Volume/OI data');
 
       const result = await response.json();
-      const volumeOiData = result.data || [];
+      
+      // Group data by symbol and calculate trends
+      const dataBySymbol: Record<string, any[]> = {};
+      (result.data || []).forEach((item: any) => {
+        if (!dataBySymbol[item.symbol]) dataBySymbol[item.symbol] = [];
+        dataBySymbol[item.symbol].push(item);
+      });
+      
+      // Transform API response to component format
+      const volumeOiData = Object.entries(dataBySymbol).map(([symbol, records]) => {
+        const sorted = records.sort((a: any, b: any) => new Date(b.trade_date).getTime() - new Date(a.trade_date).getTime());
+        const latest = sorted[0];
+        const previous = sorted[1] || latest;
+        
+        const volumeChange = ((latest.volume - previous.volume) / previous.volume) * 100;
+        const oiChange = ((latest.open_interest - previous.open_interest) / previous.open_interest) * 100;
+        
+        return {
+          market: symbol,
+          volumeTrend: volumeChange > 5 ? 'increasing' : volumeChange < -5 ? 'decreasing' : 'stable',
+          volumeChange,
+          oiTrend: oiChange > 5 ? 'increasing' : oiChange < -5 ? 'decreasing' : 'stable',
+          oiChange,
+          lastUpdate: new Date(latest.updated_at || latest.trade_date),
+        };
+      });
 
       // Cache the result (browser only)
       if (typeof window !== 'undefined') {
