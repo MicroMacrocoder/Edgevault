@@ -21,6 +21,7 @@ import {
 } from "@/lib/performanceMetrics";
 import FundamentalsWorkspace from "@/components/dashboard/FundamentalsWorkspace";
 import RiskManagementWorkspace from "@/components/dashboard/RiskManagementWorkspace";
+import RiskManagementWorkspaceEnhanced from "@/components/dashboard/RiskManagementWorkspaceEnhanced";
 import ConnectPlatformWorkspace from "@/components/dashboard/ConnectPlatformWorkspace";
 import NewEntryWorkspace from "@/components/dashboard/NewEntryWorkspace";
 import JournalWorkspace from "@/components/dashboard/JournalWorkspace";
@@ -36,6 +37,9 @@ import DashboardCustomizer, {
 import WatchlistWidget from "@/components/dashboard/WatchlistWidget";
 import PerformanceCalendarWidget from "@/components/dashboard/PerformanceCalendarWidget";
 import CurrencyStrengthWidget from "@/components/dashboard/CurrencyStrengthWidget";
+import WatchlistWidgetInteractive from "@/components/dashboard/WatchlistWidgetInteractive";
+import PerformanceCalendarWidgetEnhanced from "@/components/dashboard/PerformanceCalendarWidgetEnhanced";
+import MarketIntelligenceSummary from "@/components/dashboard/MarketIntelligenceSummary";
 import {
   Area,
   AreaChart,
@@ -1158,27 +1162,21 @@ function OverviewSection({
       {/* Watchlist Widget */}
       {visibleWidgets.includes("watchlist") && (
         <DashboardCard className="p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-green-400">Watchlist</p>
-              <h2 className="mt-1 font-mono text-lg font-bold text-white">Pair Overview</h2>
-            </div>
-          </div>
-          <WatchlistWidget />
+          <WatchlistWidgetInteractive />
         </DashboardCard>
       )}
 
       {/* Performance Calendar Widget */}
       {visibleWidgets.includes("performance-calendar") && (
         <DashboardCard className="p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-yellow-400">Performance</p>
-              <h2 className="mt-1 font-mono text-lg font-bold text-white">Trade Calendar</h2>
-            </div>
-            <button onClick={() => onSelectSection("performance")} className="font-mono text-xs text-gray-500 hover:text-yellow-400 transition">Open</button>
-          </div>
-          <PerformanceCalendarWidget />
+          <PerformanceCalendarWidgetEnhanced />
+        </DashboardCard>
+      )}
+
+      {/* Market Intelligence Summary */}
+      {visibleWidgets.includes("market-intelligence") && (
+        <DashboardCard className="p-5">
+          <MarketIntelligenceSummary />
         </DashboardCard>
       )}
 
@@ -1843,6 +1841,14 @@ export default function DashboardPage() {
   useEffect(() => {
     let isMounted = true;
     async function checkDashboardAccess() {
+      // Development mode: Allow access without authentication
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      if (isDevelopment) {
+        setCurrentUserEmail("dev@edgevault.local");
+        setIsCheckingSession(false);
+        return;
+      }
+      
       const { data } = await supabase.auth.getSession();
       const user = data?.session?.user ?? null;
       if (!isMounted) {
@@ -2001,10 +2007,8 @@ export default function DashboardPage() {
               <PerformanceWorkspace />
             ) : selectedSection === "fundamentals" ? (
               <FundamentalsWorkspace initialTab={selectedFundamentalsTab} />
-            ) : selectedSection === "dynamic-risk-engine" ? (
-              <DynamicRiskEngineWorkspace />
             ) : selectedSection === "risk-management" ? (
-              <RiskManagementWorkspace />
+              <RiskManagementWorkspaceEnhanced />
             ) : selectedSection === "connect-platform" ? (
               <ConnectPlatformWorkspace />
             ) : selectedSection === "new-entry" ? (

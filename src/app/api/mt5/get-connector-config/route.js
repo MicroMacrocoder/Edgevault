@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.warn('Supabase credentials not configured for MT5 connector');
+}
+
+const supabaseAdmin = supabaseUrl && supabaseKey 
+  ? createClient(supabaseUrl, supabaseKey)
+  : null;
 
 function createRandomToken() {
   return `mt5_connector_${crypto.randomUUID()}`;
@@ -12,6 +18,16 @@ function createRandomToken() {
 
 export async function POST(request) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Supabase credentials not configured. Please set SUPABASE_KEY or SUPABASE_SERVICE_ROLE_KEY.",
+        },
+        { status: 500 }
+      );
+    }
+
     const body = await request.json();
 
     const userId = String(body?.userId || "").trim();

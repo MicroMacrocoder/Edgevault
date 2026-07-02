@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { TrendingUp, TrendingDown, Minus, ExternalLink } from "lucide-react";
+import { useCurrencyStrength } from "@/hooks/useCurrencyStrength";
 
 interface CurrencyData {
   currency: string;
   strength: number;
-  price?: number;
-  changePercent?: number;
 }
 
 const CURRENCY_COLORS: Record<string, string> = {
@@ -24,51 +22,15 @@ const CURRENCY_COLORS: Record<string, string> = {
 
 export default function CurrencyStrengthWidget() {
   const router = useRouter();
-  const [currencies, setCurrencies] = useState<CurrencyData[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: currencyData, loading } = useCurrencyStrength();
 
-  useEffect(() => {
-    async function fetchStrength() {
-      try {
-        const res = await fetch("/api/currency-strength");
-        if (!res.ok) throw new Error("Failed");
-        const data = await res.json();
+  // Transform hook data to component format
+  const currencies: CurrencyData[] = currencyData.map((item) => ({
+    currency: item.currency,
+    strength: item.strength,
+  }));
 
-        if (data.strength) {
-          const sorted = Object.entries(data.strength)
-            .map(([currency, strength]) => ({
-              currency,
-              strength: strength as number,
-              price: data.details?.[currency]?.price,
-              changePercent: data.details?.[currency]?.changePercent,
-            }))
-            .sort((a, b) => b.strength - a.strength);
-
-          setCurrencies(sorted);
-        }
-      } catch {
-        // Use placeholder data
-        setCurrencies([
-          { currency: "USD", strength: 0 },
-          { currency: "EUR", strength: 0 },
-          { currency: "GBP", strength: 0 },
-          { currency: "JPY", strength: 0 },
-          { currency: "AUD", strength: 0 },
-          { currency: "CAD", strength: 0 },
-          { currency: "CHF", strength: 0 },
-          { currency: "NZD", strength: 0 },
-        ]);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchStrength();
-    const interval = setInterval(fetchStrength, 300000); // Refresh every 5 min
-    return () => clearInterval(interval);
-  }, []);
-
-  if (loading) {
+  if (loading || currencies.length === 0) {
     return (
       <div className="flex h-32 items-center justify-center">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent" />
@@ -88,7 +50,7 @@ export default function CurrencyStrengthWidget() {
           Open
         </button>
       </div>
-      {currencies.map((item) => {
+      {currencies.length > 0 ? currencies.map((item) => {
         const color = CURRENCY_COLORS[item.currency] || "#9ca3af";
         const barWidth = Math.abs(item.strength);
         const isPositive = item.strength > 0;
@@ -145,7 +107,11 @@ export default function CurrencyStrengthWidget() {
             </div>
           </div>
         );
-      })}
+      }) : (
+        <div className="text-center text-xs text-gray-500 py-4">
+          No currency strength data available
+        </div>
+      )}
     </div>
   );
 }

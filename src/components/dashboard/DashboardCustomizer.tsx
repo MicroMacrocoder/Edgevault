@@ -19,7 +19,8 @@ export type DashboardWidgetId =
   | "trade-log"
   | "quick-actions"
   | "watchlist"
-  | "performance-calendar";
+  | "performance-calendar"
+  | "market-intelligence";
 
 export interface DashboardWidgetConfig {
   id: DashboardWidgetId;
@@ -92,6 +93,13 @@ const DEFAULT_WIDGETS: DashboardWidgetConfig[] = [
     description: "Shortcut cards to key features",
     visible: true,
     order: 8,
+  },
+  {
+    id: "market-intelligence",
+    label: "Market Intelligence",
+    description: "COT, Volume, and OI narrative analysis",
+    visible: true,
+    order: 9,
   },
 ];
 

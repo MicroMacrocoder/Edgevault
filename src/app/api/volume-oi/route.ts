@@ -69,9 +69,12 @@ async function syncVolumeOIReportsIfNeeded() {
     const { error: upsertError } = await upsertVolumeOIReports(cmeReports);
 
     if (upsertError) {
-      throw new Error(
-        "Failed to save CME Volume/OI reports: " + upsertError.message
-      );
+      return {
+        synced: false,
+        syncDue: true,
+        message: "Failed to save CME Volume/OI reports.",
+        error: upsertError.message,
+      };
     }
   }
 

@@ -91,7 +91,12 @@ async function syncCOTReportsIfNeeded() {
   const { error: upsertError } = await upsertCOTReports(reports);
 
   if (upsertError) {
-    throw new Error("Failed to save COT reports: " + upsertError.message);
+    return {
+      synced: false,
+      syncDue: true,
+      message: "Failed to save COT reports.",
+      error: upsertError.message,
+    };
   }
 
   return {
