@@ -1875,7 +1875,9 @@ export default function DashboardPage() {
       }
       const user = session?.user ?? null;
       if (!user) {
-        router.replace("/");
+        // Allow demo access if no user is logged in
+        setCurrentUserEmail("demo@edgevault.local");
+        setIsCheckingSession(false);
         return;
       }
       setCurrentUserEmail(user.email || "");
