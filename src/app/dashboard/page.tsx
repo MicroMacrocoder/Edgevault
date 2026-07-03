@@ -732,9 +732,10 @@ type DashboardEconomicEvent = {
 
 type DashboardJournalPreview = {
   id: string;
-  title: string;
+  entryTitle: string;
   instrument: string;
   createdAt: string;
+  analysisBlocks?: any[];
 };
 
 type DashboardTradeLogPreview = {
