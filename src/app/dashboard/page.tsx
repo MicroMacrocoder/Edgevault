@@ -1145,8 +1145,14 @@ function OverviewSection({
       {/* Dashboard Customizer */}
       <DashboardCustomizer widgets={widgetPrefs} onUpdate={setWidgetPrefs} />
 
-      {/* Currency Strength Widget */}
-      {visibleWidgets.includes("currency-strength") && (
+      {/* Render widgets in the order specified by widgetPrefs */}
+      {widgetPrefs
+        .filter((w) => w.visible)
+        .sort((a, b) => a.order - b.order)
+        .map((widget) => {
+          switch (widget.id) {
+            case "currency-strength":
+              return (
         <DashboardCard className="p-5">
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -1155,32 +1161,29 @@ function OverviewSection({
             </div>
             <button onClick={() => onOpenFundamentalsTab("currency-strength")} className="font-mono text-xs text-gray-500 hover:text-yellow-400 transition">Open</button>
           </div>
-          <CurrencyStrengthWidget />
+              <CurrencyStrengthWidget />
         </DashboardCard>
-      )}
-
-      {/* Watchlist Widget */}
-      {visibleWidgets.includes("watchlist") && (
+              );
+            case "watchlist":
+              return (
         <DashboardCard className="p-5">
           <WatchlistWidgetInteractive />
         </DashboardCard>
-      )}
-
-      {/* Performance Calendar Widget */}
-      {visibleWidgets.includes("performance-calendar") && (
+              );
+            case "performance-calendar":
+              return (
         <DashboardCard className="p-5">
           <PerformanceCalendarWidgetEnhanced />
         </DashboardCard>
-      )}
-
-      {/* Market Intelligence Summary */}
-      {visibleWidgets.includes("market-intelligence") && (
+              );
+            case "market-intelligence":
+              return (
         <DashboardCard className="p-5">
           <MarketIntelligenceSummary />
         </DashboardCard>
-      )}
-
-      {visibleWidgets.includes("cot") && (<div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+              );
+            case "cot":
+              return (<div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         <DashboardCard className="p-5">
           <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -1348,9 +1351,10 @@ function OverviewSection({
             )}
           </div>
         </DashboardCard>
-      </div>)}
-
-      {visibleWidgets.includes("performance") && (<div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+      </div>
+              );
+            case "performance":
+              return (<div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         <DashboardCard className="p-5">
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <select
@@ -1602,9 +1606,10 @@ function OverviewSection({
             </div>
           </DashboardCard>
         </div>
-      </div>)}
-
-      {visibleWidgets.includes("quick-actions") && (
+      </div>
+              );
+            case "quick-actions":
+              return (
       <DashboardCard className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ["Workspace", "Plan and save analysis", "journal"],
@@ -1626,7 +1631,12 @@ function OverviewSection({
             </p>
           </button>
         ))}
-      </DashboardCard>)}
+      </DashboardCard>
+              );
+            default:
+              return null;
+          }
+        })}
     </div>
   );
 }
