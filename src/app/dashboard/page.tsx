@@ -1032,9 +1032,10 @@ function OverviewSection({
         setJournalPreview(
           (entries || []).slice(0, 3).map((entry: any) => ({
             id: String(entry.id),
-            title: entry.entryTitle || "Untitled Analysis",
+            entryTitle: entry.entryTitle || "Untitled Analysis",
             instrument: entry.instrument || "No instrument",
             createdAt: entry.createdAt || entry.entryDate || "",
+            analysisBlocks: entry.analysisBlocks || [],
           })),
         );
 
