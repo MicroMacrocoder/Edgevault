@@ -1624,21 +1624,68 @@ function OverviewSection({
                 No journal entries yet.
               </div>
             ) : (
-              journalPreview.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  onClick={() => onSelectSection("journal")}
-                  className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
-                >
-                  <p className="truncate font-mono text-sm font-bold text-white">
-                    {entry.title}
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500">
-                    {entry.instrument} • {formatDashboardDate(entry.createdAt)}
-                  </p>
-                </button>
-              ))
+              journalPreview.map((entry) => {
+                const chartBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "chart");
+                const checklistBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "checklist");
+                const analysisBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "analysis");
+                const timeframeData = chartBlock?.data?.timeframe || "N/A";
+                const chartImage = chartBlock?.data?.chartImage;
+                const checklistItems = checklistBlock?.data?.items || [];
+                const analysisText = analysisBlock?.data?.text || "";
+
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => onSelectSection("journal")}
+                    className="w-full border border-gray-800 bg-gray-950 p-4 text-left transition hover:border-yellow-400"
+                  >
+                    <div className="mb-3 flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="truncate font-mono text-sm font-bold text-white">
+                          {entry.entryTitle}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {entry.instrument} • TF: {timeframeData} • {formatDashboardDate(entry.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {chartImage && (
+                      <div className="mb-3 overflow-hidden rounded border border-gray-700">
+                        <img
+                          src={chartImage}
+                          alt="Chart"
+                          className="h-32 w-full object-cover"
+                        />
+                      </div>
+                    )}
+
+                    {checklistItems.length > 0 && (
+                      <div className="mb-3">
+                        <p className="mb-2 text-xs font-semibold uppercase text-cyan-400">Checklist</p>
+                        <div className="space-y-1">
+                          {checklistItems.slice(0, 3).map((item: any, idx: number) => (
+                            <p key={idx} className="text-xs text-gray-400">
+                              <span className="mr-2">{item.checked ? "✓" : "○"}</span>
+                              {item.label}
+                            </p>
+                          ))}
+                          {checklistItems.length > 3 && (
+                            <p className="text-xs text-gray-500">+{checklistItems.length - 3} more</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {analysisText && (
+                      <div className="text-xs text-gray-400 line-clamp-2">
+                        {analysisText.substring(0, 150)}...
+                      </div>
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </DashboardCard>
