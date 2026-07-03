@@ -1608,6 +1608,76 @@ function OverviewSection({
         </div>
       </div>
               );
+            case "journal":
+              return (
+        <DashboardCard className="min-h-0 overflow-hidden p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">Journal</p>
+              <h2 className="mt-1 font-mono text-lg font-bold text-white">Recent Entries</h2>
+            </div>
+            <button onClick={() => onSelectSection("journal")} className="font-mono text-xs text-gray-500 hover:text-yellow-400 transition">View All</button>
+          </div>
+          <div className="space-y-3">
+            {journalPreview.length === 0 ? (
+              <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
+                No journal entries yet.
+              </div>
+            ) : (
+              journalPreview.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => onSelectSection("journal")}
+                  className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
+                >
+                  <p className="truncate font-mono text-sm font-bold text-white">
+                    {entry.title}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {entry.instrument} • {formatDashboardDate(entry.createdAt)}
+                  </p>
+                </button>
+              ))
+            )}
+          </div>
+        </DashboardCard>
+              );
+            case "trade-log":
+              return (
+        <DashboardCard className="min-h-0 overflow-hidden p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">Trade Log</p>
+              <h2 className="mt-1 font-mono text-lg font-bold text-white">Recent Logs</h2>
+            </div>
+            <button onClick={() => onSelectSection("saved-trade-logs")} className="font-mono text-xs text-gray-500 hover:text-yellow-400 transition">View All</button>
+          </div>
+          <div className="space-y-3">
+            {tradeLogPreview.length === 0 ? (
+              <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
+                No trade logs yet.
+              </div>
+            ) : (
+              tradeLogPreview.map((log) => (
+                <button
+                  key={log.id}
+                  type="button"
+                  onClick={() => onSelectSection("saved-trade-logs")}
+                  className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
+                >
+                  <p className="truncate font-mono text-sm font-bold text-white">
+                    {log.logName}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Initial: {formatMoney(log.initialBalance, log.accountCurrency)}
+                  </p>
+                </button>
+              ))
+            )}
+          </div>
+        </DashboardCard>
+              );
             case "quick-actions":
               return (
       <DashboardCard className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
