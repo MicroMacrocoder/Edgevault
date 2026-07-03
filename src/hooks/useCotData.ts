@@ -44,21 +44,30 @@ export function useCotData(market?: string) {
       const result = await response.json();
       
       // Transform API response to component format
-      const cotData = (result.reports || []).map((report: any) => ({
-        market: report.symbol || report.currency,
-        commercialBias: report.commercial_net > 0 ? 'bullish' : report.commercial_net < 0 ? 'bearish' : 'neutral',
-        commercialNetPosition: report.commercial_net,
-        retailBias: report.noncommercial_net > 0 ? 'bullish' : report.noncommercial_net < 0 ? 'bearish' : 'neutral',
-        retailNetPosition: report.noncommercial_net,
-        lastUpdate: new Date(report.updated_at || report.report_date),
-      }));
+      const cotData: CotDataPoint[] = (result.reports || []).map((report: any) => {
+        const commercialBiasValue: 'bullish' | 'bearish' | 'neutral' = report.commercial_net > 0 ? 'bullish' : report.commercial_net < 0 ? 'bearish' : 'neutral';
+        const retailBiasValue: 'bullish' | 'bearish' | 'neutral' = report.noncommercial_net > 0 ? 'bullish' : report.noncommercial_net < 0 ? 'bearish' : 'neutral';
+        
+        return {
+          market: report.symbol || report.currency,
+          commercialBias: commercialBiasValue,
+          commercialNetPosition: report.commercial_net,
+          retailBias: retailBiasValue,
+          retailNetPosition: report.noncommercial_net,
+          lastUpdate: new Date(report.updated_at || report.report_date),
+        };
+      });
 
       // Cache the result (browser only)
       if (typeof window !== 'undefined') {
+        const cacheData = cotData.map(item => ({
+          ...item,
+          lastUpdate: item.lastUpdate.toISOString(),
+        }));
         localStorage.setItem(
           CACHE_KEY,
           JSON.stringify({
-            data: cotData,
+            data: cacheData,
             timestamp: Date.now(),
           })
         );

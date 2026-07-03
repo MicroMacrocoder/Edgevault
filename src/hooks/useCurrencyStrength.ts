@@ -37,19 +37,27 @@ export function useCurrencyStrength() {
       const result = await response.json();
       
       // Transform API response to component format
-      const strengthData = Object.entries(result.strength || {}).map(([currency, strength]) => ({
-        currency,
-        strength: strength as number,
-        trend: (strength as number) > 0 ? 'up' : (strength as number) < 0 ? 'down' : 'neutral',
-        lastUpdate: new Date(result.timestamp),
-      }));
+      const strengthData: CurrencyStrengthData[] = Object.entries(result.strength || {}).map(([currency, strength]) => {
+        const numStrength = strength as number;
+        const trendValue: 'up' | 'down' | 'neutral' = numStrength > 0 ? 'up' : numStrength < 0 ? 'down' : 'neutral';
+        return {
+          currency,
+          strength: numStrength,
+          trend: trendValue,
+          lastUpdate: new Date(result.timestamp),
+        };
+      });
 
       // Cache the result (browser only)
       if (typeof window !== 'undefined') {
+        const cacheData = strengthData.map(item => ({
+          ...item,
+          lastUpdate: item.lastUpdate.toISOString(),
+        }));
         localStorage.setItem(
           CACHE_KEY,
           JSON.stringify({
-            data: strengthData,
+            data: cacheData,
             timestamp: Date.now(),
           })
         );

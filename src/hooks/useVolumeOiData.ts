@@ -51,7 +51,7 @@ export function useVolumeOiData(market?: string) {
       });
       
       // Transform API response to component format
-      const volumeOiData = Object.entries(dataBySymbol).map(([symbol, records]) => {
+      const volumeOiData: VolumeOiData[] = Object.entries(dataBySymbol).map(([symbol, records]) => {
         const sorted = records.sort((a: any, b: any) => new Date(b.trade_date).getTime() - new Date(a.trade_date).getTime());
         const latest = sorted[0];
         const previous = sorted[1] || latest;
@@ -59,11 +59,14 @@ export function useVolumeOiData(market?: string) {
         const volumeChange = ((latest.volume - previous.volume) / previous.volume) * 100;
         const oiChange = ((latest.open_interest - previous.open_interest) / previous.open_interest) * 100;
         
+        const volumeTrendValue: 'increasing' | 'decreasing' | 'stable' = volumeChange > 5 ? 'increasing' : volumeChange < -5 ? 'decreasing' : 'stable';
+        const oiTrendValue: 'increasing' | 'decreasing' | 'stable' = oiChange > 5 ? 'increasing' : oiChange < -5 ? 'decreasing' : 'stable';
+        
         return {
           market: symbol,
-          volumeTrend: volumeChange > 5 ? 'increasing' : volumeChange < -5 ? 'decreasing' : 'stable',
+          volumeTrend: volumeTrendValue,
           volumeChange,
-          oiTrend: oiChange > 5 ? 'increasing' : oiChange < -5 ? 'decreasing' : 'stable',
+          oiTrend: oiTrendValue,
           oiChange,
           lastUpdate: new Date(latest.updated_at || latest.trade_date),
         };
@@ -71,10 +74,14 @@ export function useVolumeOiData(market?: string) {
 
       // Cache the result (browser only)
       if (typeof window !== 'undefined') {
+        const cacheData = volumeOiData.map(item => ({
+          ...item,
+          lastUpdate: item.lastUpdate.toISOString(),
+        }));
         localStorage.setItem(
           CACHE_KEY,
           JSON.stringify({
-            data: volumeOiData,
+            data: cacheData,
             timestamp: Date.now(),
           })
         );
