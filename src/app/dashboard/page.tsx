@@ -1650,6 +1650,16 @@ function OverviewSection({
                         <p className="mt-1 text-xs text-gray-500">
                           {entry.instrument} • TF: {timeframeData} • {formatDashboardDate(entry.createdAt)}
                         </p>
+                        {entry.analysisBlocks && entry.analysisBlocks.length > 0 && (
+                          <p className="mt-1 text-xs text-green-400">
+                            Blocks: {entry.analysisBlocks.length}
+                          </p>
+                        )}
+                        {(!entry.analysisBlocks || entry.analysisBlocks.length === 0) && (
+                          <p className="mt-1 text-xs text-red-400">
+                            No analysis blocks loaded
+                          </p>
+                        )}
                       </div>
                     </div>
 
