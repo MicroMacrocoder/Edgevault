@@ -1565,7 +1565,7 @@ function OverviewSection({
                     className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
                   >
                     <p className="truncate font-mono text-sm font-bold text-white">
-                      {entry.title}
+                      {entry.entryTitle}
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
                       {entry.instrument} • {formatDashboardDate(entry.createdAt)}
