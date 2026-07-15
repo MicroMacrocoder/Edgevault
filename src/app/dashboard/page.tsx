@@ -1651,9 +1651,17 @@ function OverviewSection({
                           {entry.instrument} • TF: {timeframeData} • {formatDashboardDate(entry.createdAt)}
                         </p>
                         {entry.analysisBlocks && entry.analysisBlocks.length > 0 && (
-                          <p className="mt-1 text-xs text-green-400">
-                            Blocks: {entry.analysisBlocks.length}
-                          </p>
+                          <>
+                            <p className="mt-1 text-xs text-green-400">
+                              Blocks: {entry.analysisBlocks.length}
+                            </p>
+                            <p className="mt-1 text-xs text-yellow-400">
+                              Types: {entry.analysisBlocks.map((b: any) => b.blockType).join(", ")}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-400">
+                              Chart: {chartBlock ? "✓" : "✗"} | Checklist: {checklistBlock ? "✓" : "✗"} | Analysis: {analysisBlock ? "✓" : "✗"}
+                            </p>
+                          </>
                         )}
                         {(!entry.analysisBlocks || entry.analysisBlocks.length === 0) && (
                           <p className="mt-1 text-xs text-red-400">
