@@ -1627,13 +1627,13 @@ function OverviewSection({
               </div>
             ) : (
               journalPreview.map((entry) => {
-                const chartBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "chart");
-                const checklistBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "checklist");
-                const analysisBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "analysis");
-                const timeframeData = chartBlock?.data?.timeframe || "N/A";
-                const chartImage = chartBlock?.data?.chartImage;
-                const checklistItems = checklistBlock?.data?.items || [];
-                const analysisText = analysisBlock?.data?.text || "";
+                // Get the entry_timeframe block (contains chart and checklist)
+                const timeframeBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "entry_timeframe") || entry.analysisBlocks?.[0];
+                const blockType = timeframeBlock?.blockType || "N/A";
+                const chartImage = timeframeBlock?.data?.chartImage;
+                const checklistItems = timeframeBlock?.data?.checkedItems || [];
+                const analysisText = timeframeBlock?.data?.analysisText || "";
+                const timeframeLabel = blockType?.replace(/_/g, " ").split(" ")[0] || "N/A";
 
                 return (
                   <button
@@ -1648,26 +1648,8 @@ function OverviewSection({
                           {entry.entryTitle}
                         </p>
                         <p className="mt-1 text-xs text-gray-500">
-                          {entry.instrument} • TF: {timeframeData} • {formatDashboardDate(entry.createdAt)}
+                          {entry.instrument} • TF: {timeframeLabel} • {formatDashboardDate(entry.createdAt)}
                         </p>
-                        {entry.analysisBlocks && entry.analysisBlocks.length > 0 && (
-                          <>
-                            <p className="mt-1 text-xs text-green-400">
-                              Blocks: {entry.analysisBlocks.length}
-                            </p>
-                            <p className="mt-1 text-xs text-yellow-400">
-                              Types: {entry.analysisBlocks.map((b: any) => b.blockType).join(", ")}
-                            </p>
-                            <p className="mt-1 text-xs text-blue-400">
-                              Chart: {chartBlock ? "✓" : "✗"} | Checklist: {checklistBlock ? "✓" : "✗"} | Analysis: {analysisBlock ? "✓" : "✗"}
-                            </p>
-                          </>
-                        )}
-                        {(!entry.analysisBlocks || entry.analysisBlocks.length === 0) && (
-                          <p className="mt-1 text-xs text-red-400">
-                            No analysis blocks loaded
-                          </p>
-                        )}
                       </div>
                     </div>
 
@@ -1683,16 +1665,16 @@ function OverviewSection({
 
                     {checklistItems.length > 0 && (
                       <div className="mb-3">
-                        <p className="mb-2 text-xs font-semibold uppercase text-cyan-400">Checklist</p>
+                        <p className="mb-2 text-xs font-semibold uppercase text-cyan-400">Checklist ({checklistItems.length})</p>
                         <div className="space-y-1">
-                          {checklistItems.slice(0, 3).map((item: any, idx: number) => (
+                          {checklistItems.slice(0, 4).map((item: any, idx: number) => (
                             <p key={idx} className="text-xs text-gray-400">
-                              <span className="mr-2">{item.checked ? "✓" : "○"}</span>
-                              {item.label}
+                              <span className="mr-2">✓</span>
+                              {typeof item === "string" ? item : item.label || item}
                             </p>
                           ))}
-                          {checklistItems.length > 3 && (
-                            <p className="text-xs text-gray-500">+{checklistItems.length - 3} more</p>
+                          {checklistItems.length > 4 && (
+                            <p className="text-xs text-gray-500">+{checklistItems.length - 4} more</p>
                           )}
                         </div>
                       </div>
