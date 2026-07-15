@@ -1634,6 +1634,17 @@ function OverviewSection({
                 const checklistItems = timeframeBlock?.data?.checkedItems || [];
                 const analysisText = timeframeBlock?.data?.analysisText || "";
                 const timeframeLabel = blockType?.replace(/_/g, " ").split(" ")[0] || "N/A";
+                
+                // Debug: Log the actual structure
+                if (entry.id === journalPreview[0]?.id) {
+                  console.log("[Journal Debug] Entry:", entry);
+                  console.log("[Journal Debug] Analysis Blocks:", entry.analysisBlocks);
+                  console.log("[Journal Debug] Timeframe Block:", timeframeBlock);
+                  console.log("[Journal Debug] Block Data:", timeframeBlock?.data);
+                  console.log("[Journal Debug] Chart Image:", chartImage);
+                  console.log("[Journal Debug] Checklist Items:", checklistItems);
+                  console.log("[Journal Debug] Analysis Text:", analysisText);
+                }
 
                 return (
                   <button
@@ -1649,6 +1660,9 @@ function OverviewSection({
                         </p>
                         <p className="mt-1 text-xs text-gray-500">
                           {entry.instrument} • TF: {timeframeLabel} • {formatDashboardDate(entry.createdAt)}
+                        </p>
+                        <p className="mt-1 text-xs text-yellow-400">
+                          [DEBUG] Blocks: {entry.analysisBlocks?.length || 0} | Chart: {chartImage ? "✓" : "✗"} | Checklist: {checklistItems.length} | Text: {analysisText ? "✓" : "✗"}
                         </p>
                       </div>
                     </div>
