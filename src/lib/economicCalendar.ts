@@ -1,42 +1,51 @@
 import type { EconomicEvent, ExternalEconomicEvent } from "@/types/economic";
 
-const EXTERNAL_ECONOMIC_API_KEY = process.env.EXTERNAL_ECONOMIC_API_KEY || "";
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || "";
 
 /**
- * TEMPORARY MOCK DATA
- * Simulates an external economic API
+ * Fetch live economic events from Finnhub API
  */
 async function fetchExternalEconomicEvents(): Promise<ExternalEconomicEvent[]> {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  if (!FINNHUB_API_KEY) {
+    console.warn("FINNHUB_API_KEY not set. Cannot fetch live economic data.");
+    return [];
+  }
 
-  return [
-    {
-      id: "usd-interest-rate-decision-2026-05-15",
-      title: "Interest Rate Decision",
-      country: "United States",
-      date: "2026-05-15",
-      time: "14:00",
-      impact: "High",
-      actual: null,
-      forecast: 0.25,
-      previous: 0.25,
-      unit: "%",
-      currency: "USD",
-    },
-    {
-      id: "usd-non-farm-payrolls-2026-05-15",
-      title: "Non-Farm Payrolls",
-      country: "United States",
-      date: "2026-05-15",
-      time: "12:30",
-      impact: "High",
-      actual: null,
-      forecast: 190000,
-      previous: 175000,
-      unit: "jobs",
-      currency: "USD",
-    },
-  ];
+  try {
+    const response = await fetch(
+      `https://finnhub.io/api/v1/economic-calendar?token=${FINNHUB_API_KEY}`
+    );
+
+    if (!response.ok) {
+      console.error(`Finnhub API error: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+
+    // Map Finnhub response to our ExternalEconomicEvent format
+    if (!Array.isArray(data)) {
+      console.warn("Unexpected Finnhub response format");
+      return [];
+    }
+
+    return data.map((event: any) => ({
+      id: event.id || `${event.country}-${event.event}-${event.date}`,
+      title: event.event || "Unknown Event",
+      country: event.country || "Unknown",
+      date: event.date || new Date().toISOString().split("T")[0],
+      time: event.time || "00:00",
+      impact: event.impact || "Medium",
+      actual: event.actual !== undefined ? event.actual : null,
+      forecast: event.forecast !== undefined ? event.forecast : null,
+      previous: event.prev !== undefined ? event.prev : null,
+      unit: event.unit || "",
+      currency: event.country?.substring(0, 3).toUpperCase() || "USD",
+    }));
+  } catch (error) {
+    console.error("Failed to fetch economic events from Finnhub:", error);
+    return [];
+  }
 }
 
 /**
@@ -66,13 +75,9 @@ function normalizeEconomicEvent(
  * Fetch all economic events
  */
 export async function getEconomicEvents(): Promise<EconomicEvent[]> {
-  if (!EXTERNAL_ECONOMIC_API_KEY) {
-    console.warn("EXTERNAL_ECONOMIC_API_KEY not set. Using mock data.");
-  }
-
   const externalEvents = await fetchExternalEconomicEvents();
 
   return externalEvents.map((event) =>
-    normalizeEconomicEvent(event, "MockExternalAPI")
+    normalizeEconomicEvent(event, "Finnhub")
   );
 }
