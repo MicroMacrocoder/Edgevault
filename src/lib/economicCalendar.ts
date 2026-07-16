@@ -1,83 +1,129 @@
-import type { EconomicEvent, ExternalEconomicEvent } from "@/types/economic";
-
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || "";
+import type { EconomicEvent } from "@/types/economic";
 
 /**
- * Fetch live economic events from Finnhub API
+ * Fetch economic events from the /api/fundamentals endpoint
+ * This endpoint uses Finnhub API to get live economic calendar data
  */
-async function fetchExternalEconomicEvents(): Promise<ExternalEconomicEvent[]> {
-  if (!FINNHUB_API_KEY) {
-    console.warn("FINNHUB_API_KEY not set. Cannot fetch live economic data.");
-    return [];
-  }
-
+export async function getEconomicEvents(): Promise<EconomicEvent[]> {
   try {
-    const response = await fetch(
-      `https://finnhub.io/api/v1/economic-calendar?token=${FINNHUB_API_KEY}`
-    );
+    const response = await fetch("/api/fundamentals", { cache: "no-store" });
 
     if (!response.ok) {
-      console.error(`Finnhub API error: ${response.status}`);
+      console.error("Failed to fetch economic events:", response.status);
       return [];
     }
 
     const data = await response.json();
 
-    // Map Finnhub response to our ExternalEconomicEvent format
     if (!Array.isArray(data)) {
-      console.warn("Unexpected Finnhub response format");
+      console.warn("Unexpected response format from /api/fundamentals");
       return [];
     }
 
-    return data.map((event: any) => ({
-      id: event.id || `${event.country}-${event.event}-${event.date}`,
-      title: event.event || "Unknown Event",
-      country: event.country || "Unknown",
-      date: event.date || new Date().toISOString().split("T")[0],
-      time: event.time || "00:00",
-      impact: event.impact || "Medium",
-      actual: event.actual !== undefined ? event.actual : null,
-      forecast: event.forecast !== undefined ? event.forecast : null,
-      previous: event.prev !== undefined ? event.prev : null,
-      unit: event.unit || "",
-      currency: event.country?.substring(0, 3).toUpperCase() || "USD",
+    // Map the API response to EconomicEvent format
+    return data.map((item: any, index: number) => ({
+      id: `${item.currency}-${item.indicator}-${index}`,
+      indicator: item.indicator || "Unknown Event",
+      currency: item.currency || null,
+      actual: item.actual ?? null,
+      forecast: item.forecast ?? null,
+      previous: item.previous ?? null,
+      impact: item.impact || "Low",
+      unit: item.unit || "",
+      releaseDate: item.releaseDate || new Date().toISOString(),
+      source: "Finnhub",
     }));
   } catch (error) {
-    console.error("Failed to fetch economic events from Finnhub:", error);
+    console.error("Error fetching economic events:", error);
     return [];
   }
 }
 
 /**
- * Normalize external event into EconomicEvent
+ * Filter economic events by currency
  */
-function normalizeEconomicEvent(
-  event: ExternalEconomicEvent,
-  source: string
-): EconomicEvent {
-  const combinedTimestamp = `${event.date}T${event.time}:00Z`;
-
-  return {
-    id: event.id,
-    indicator: event.title,
-    currency: event.currency ?? null,
-    actual: event.actual ?? null,
-    forecast: event.forecast ?? null,
-    previous: event.previous ?? null,
-    impact: event.impact,
-    unit: event.unit ?? null,
-    releaseDate: combinedTimestamp,
-    source,
-  };
+export function filterByCurrency(
+  events: EconomicEvent[],
+  currency: string
+): EconomicEvent[] {
+  if (currency === "All") return events;
+  return events.filter((e) => e.currency === currency);
 }
 
 /**
- * Fetch all economic events
+ * Filter economic events by impact
  */
-export async function getEconomicEvents(): Promise<EconomicEvent[]> {
-  const externalEvents = await fetchExternalEconomicEvents();
+export function filterByImpact(
+  events: EconomicEvent[],
+  impact: string
+): EconomicEvent[] {
+  if (impact === "All") return events;
+  return events.filter((e) => e.impact.toLowerCase() === impact.toLowerCase());
+}
 
-  return externalEvents.map((event) =>
-    normalizeEconomicEvent(event, "Finnhub")
-  );
+/**
+ * Filter economic events by date
+ */
+export function filterByDate(
+  events: EconomicEvent[],
+  dateStr: string
+): EconomicEvent[] {
+  if (!dateStr) return events;
+  return events.filter((e) => e.releaseDate.startsWith(dateStr));
+}
+
+/**
+ * Get unique currencies from events
+ */
+export function getUniqueCurrencies(events: EconomicEvent[]): string[] {
+  const currencies = new Set(events.map((e) => e.currency).filter(Boolean));
+  return Array.from(currencies).sort();
+}
+
+/**
+ * Get unique impact levels from events
+ */
+export function getUniqueImpacts(events: EconomicEvent[]): string[] {
+  const impacts = new Set(events.map((e) => e.impact));
+  return Array.from(impacts).sort();
+}
+
+/**
+ * Format time for display
+ */
+export function formatEventTime(eventTime: string): string {
+  try {
+    const date = new Date(eventTime);
+    if (Number.isNaN(date.getTime())) return "Invalid time";
+    return date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "Invalid time";
+  }
+}
+
+/**
+ * Format date for display
+ */
+export function formatEventDate(eventTime: string): string {
+  try {
+    const date = new Date(eventTime);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Format event value with unit
+ */
+export function formatEventValue(
+  value: number | null | undefined,
+  unit: string
+): string {
+  if (value === null || value === undefined) return "-";
+  return `${value}${unit ? " " + unit : ""}`;
 }
