@@ -184,7 +184,18 @@ export default function EconomicCalendar() {
     return events.filter(function (event) {
       var matchesCurrency = currencyFilter === "All" || event.currency === currencyFilter;
       var matchesImpact = impactFilter === "All" || (event.impact || "").toLowerCase() === impactFilter.toLowerCase();
-      var matchesDate = !dateFilter || getEventDateOnly(event.event_time) === dateFilter;
+      var matchesDate = true;
+      if (dateFilter && event.event_time) {
+        try {
+          var eventDate = new Date(event.event_time);
+          var filterDate = new Date(dateFilter);
+          var eventDateStr = eventDate.toISOString().split("T")[0];
+          var filterDateStr = filterDate.toISOString().split("T")[0];
+          matchesDate = eventDateStr === filterDateStr;
+        } catch {
+          matchesDate = getEventDateOnly(event.event_time) === dateFilter;
+        }
+      }
       return matchesCurrency && matchesImpact && matchesDate;
     });
   }, [currencyFilter, dateFilter, events, impactFilter]);
