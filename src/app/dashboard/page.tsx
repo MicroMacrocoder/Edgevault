@@ -1670,12 +1670,22 @@ function OverviewSection({
                       <div className="mb-3">
                         <p className="mb-2 text-xs font-semibold uppercase text-cyan-400">Checklist ({checklistItems.length + customChecklistItems.length})</p>
                         <div className="space-y-1">
-                          {[...(checklistItems || []), ...(customChecklistItems || [])].slice(0, 4).map((item: any, idx: number) => (
-                            <p key={idx} className="text-xs text-gray-400">
-                              <span className="mr-2">✓</span>
-                              {typeof item === "string" ? item : item.text || item.label || item}
-                            </p>
-                          ))}
+                          {[...(checklistItems || []), ...(customChecklistItems || [])].slice(0, 4).map((item: any, idx: number) => {
+                            let displayText = "";
+                            if (typeof item === "string") {
+                              displayText = item;
+                            } else if (typeof item === "object" && item !== null) {
+                              displayText = item.text || item.label || item.title || "";
+                            } else {
+                              displayText = String(item);
+                            }
+                            return (
+                              <p key={idx} className="text-xs text-gray-400">
+                                <span className="mr-2">✓</span>
+                                {displayText}
+                              </p>
+                            );
+                          })}
                           {(checklistItems.length + customChecklistItems.length) > 4 && (
                             <p className="text-xs text-gray-500">+{(checklistItems.length + customChecklistItems.length) - 4} more</p>
                           )}
