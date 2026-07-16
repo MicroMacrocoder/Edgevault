@@ -24,6 +24,8 @@ interface EconomicEvent {
   source?: string | null;
 }
 
+const SUPPORTED_CURRENCIES = ["AUD", "CAD", "CHF", "EUR", "GBP", "JPY", "USD"];
+
 const TIMEZONE_OPTIONS = [
   { label: "UTC", value: "UTC" },
   { label: "New York (EST/EDT)", value: "America/New_York" },
@@ -174,7 +176,8 @@ export default function EconomicCalendar() {
 
   const currencies = useMemo(function () {
     var list = events.map(function (e) { return e.currency; }).filter(Boolean);
-    return ["All"].concat(Array.from(new Set(list)).sort() as string[]);
+    var filtered = Array.from(new Set(list)).filter(function (c) { return SUPPORTED_CURRENCIES.includes(c); }).sort();
+    return ["All"].concat(filtered as string[]);
   }, [events]);
 
   const filteredEvents = useMemo(function () {
