@@ -133,6 +133,7 @@ const DEMO_FUNDAMENTALS: FundamentalData[] = [
 export async function GET() {
   // Use demo data if API key is not available
   if (!FINNHUB_API_KEY) {
+    console.warn("FINNHUB_API_KEY not set. Returning demo data.");
     return NextResponse.json(DEMO_FUNDAMENTALS);
   }
 
