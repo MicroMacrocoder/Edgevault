@@ -1631,9 +1631,9 @@ function OverviewSection({
                 const timeframeBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "entry_timeframe") || entry.analysisBlocks?.[0];
                 const blockType = timeframeBlock?.blockType || "N/A";
                 // Properties are at top level of block, not nested under data
-                const chartImage = timeframeBlock?.chartImage;
-                const checklistItems = timeframeBlock?.checklistItems || [];
-                const customChecklistItems = timeframeBlock?.customChecklistItems || [];
+                const chartImage = timeframeBlock?.chartImage || "";
+                const checklistItems = Array.isArray(timeframeBlock?.checklistItems) ? timeframeBlock.checklistItems : [];
+                const customChecklistItems = Array.isArray(timeframeBlock?.customChecklistItems) ? timeframeBlock.customChecklistItems : [];
                 const analysisText = timeframeBlock?.analysisHtml || "";
                 const timeframeLabel = timeframeBlock?.timeframe || blockType?.replace(/_/g, " ").split(" ")[0] || "N/A";
 
@@ -1670,7 +1670,7 @@ function OverviewSection({
                       <div className="mb-3">
                         <p className="mb-2 text-xs font-semibold uppercase text-cyan-400">Checklist ({checklistItems.length + customChecklistItems.length})</p>
                         <div className="space-y-1">
-                          {[...checklistItems, ...customChecklistItems].slice(0, 4).map((item: any, idx: number) => (
+                          {[...(checklistItems || []), ...(customChecklistItems || [])].slice(0, 4).map((item: any, idx: number) => (
                             <p key={idx} className="text-xs text-gray-400">
                               <span className="mr-2">✓</span>
                               {typeof item === "string" ? item : item.text || item.label || item}
