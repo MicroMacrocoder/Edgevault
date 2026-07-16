@@ -1630,21 +1630,12 @@ function OverviewSection({
                 // Get the entry_timeframe block (contains chart and checklist)
                 const timeframeBlock = entry.analysisBlocks?.find((b: any) => b.blockType === "entry_timeframe") || entry.analysisBlocks?.[0];
                 const blockType = timeframeBlock?.blockType || "N/A";
-                const chartImage = timeframeBlock?.data?.chartImage;
-                const checklistItems = timeframeBlock?.data?.checkedItems || [];
-                const analysisText = timeframeBlock?.data?.analysisText || "";
-                const timeframeLabel = blockType?.replace(/_/g, " ").split(" ")[0] || "N/A";
-                
-                // Debug: Log the actual structure
-                if (entry.id === journalPreview[0]?.id) {
-                  console.log("[Journal Debug] Entry:", entry);
-                  console.log("[Journal Debug] Analysis Blocks:", entry.analysisBlocks);
-                  console.log("[Journal Debug] Timeframe Block:", timeframeBlock);
-                  console.log("[Journal Debug] Block Data:", timeframeBlock?.data);
-                  console.log("[Journal Debug] Chart Image:", chartImage);
-                  console.log("[Journal Debug] Checklist Items:", checklistItems);
-                  console.log("[Journal Debug] Analysis Text:", analysisText);
-                }
+                // Properties are at top level of block, not nested under data
+                const chartImage = timeframeBlock?.chartImage;
+                const checklistItems = timeframeBlock?.checklistItems || [];
+                const customChecklistItems = timeframeBlock?.customChecklistItems || [];
+                const analysisText = timeframeBlock?.analysisHtml || "";
+                const timeframeLabel = timeframeBlock?.timeframe || blockType?.replace(/_/g, " ").split(" ")[0] || "N/A";
 
                 return (
                   <button
@@ -1661,9 +1652,7 @@ function OverviewSection({
                         <p className="mt-1 text-xs text-gray-500">
                           {entry.instrument} • TF: {timeframeLabel} • {formatDashboardDate(entry.createdAt)}
                         </p>
-                        <p className="mt-1 text-xs text-yellow-400">
-                          [DEBUG] Blocks: {entry.analysisBlocks?.length || 0} | Chart: {chartImage ? "✓" : "✗"} | Checklist: {checklistItems.length} | Text: {analysisText ? "✓" : "✗"}
-                        </p>
+
                       </div>
                     </div>
 
@@ -1677,26 +1666,27 @@ function OverviewSection({
                       </div>
                     )}
 
-                    {checklistItems.length > 0 && (
+                    {(checklistItems.length > 0 || customChecklistItems.length > 0) && (
                       <div className="mb-3">
-                        <p className="mb-2 text-xs font-semibold uppercase text-cyan-400">Checklist ({checklistItems.length})</p>
+                        <p className="mb-2 text-xs font-semibold uppercase text-cyan-400">Checklist ({checklistItems.length + customChecklistItems.length})</p>
                         <div className="space-y-1">
-                          {checklistItems.slice(0, 4).map((item: any, idx: number) => (
+                          {[...checklistItems, ...customChecklistItems].slice(0, 4).map((item: any, idx: number) => (
                             <p key={idx} className="text-xs text-gray-400">
                               <span className="mr-2">✓</span>
-                              {typeof item === "string" ? item : item.label || item}
+                              {typeof item === "string" ? item : item.text || item.label || item}
                             </p>
                           ))}
-                          {checklistItems.length > 4 && (
-                            <p className="text-xs text-gray-500">+{checklistItems.length - 4} more</p>
+                          {(checklistItems.length + customChecklistItems.length) > 4 && (
+                            <p className="text-xs text-gray-500">+{(checklistItems.length + customChecklistItems.length) - 4} more</p>
                           )}
                         </div>
                       </div>
                     )}
 
                     {analysisText && (
-                      <div className="text-xs text-gray-400 line-clamp-2">
-                        {analysisText.substring(0, 150)}...
+                      <div className="text-xs text-gray-400 line-clamp-3">
+                        {typeof analysisText === "string" ? analysisText.replace(/<[^>]*>/g, "").substring(0, 200) : ""}
+                        {analysisText.length > 200 && "..."}
                       </div>
                     )}
                   </button>
