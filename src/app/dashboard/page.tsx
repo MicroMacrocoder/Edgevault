@@ -1686,7 +1686,7 @@ function OverviewSection({
                     {analysisText && (
                       <div className="text-xs text-gray-400 line-clamp-3">
                         {typeof analysisText === "string" ? analysisText.replace(/<[^>]*>/g, "").substring(0, 200) : ""}
-                        {analysisText.length > 200 && "..."}
+                        {typeof analysisText === "string" && analysisText.length > 200 && "..."}
                       </div>
                     )}
                   </button>
