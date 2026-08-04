@@ -1627,7 +1627,7 @@ function RightPanel({
   onSelectSection: (section: DashboardSection) => void;
 }) {
   return (
-    <aside className="hidden space-y-5 2xl:block">
+    <aside className="grid min-w-0 gap-4 sm:grid-cols-2 2xl:block 2xl:space-y-5">
       <DashboardCard className="p-5">
         <div className="flex items-center justify-between">
           <div>
@@ -1848,20 +1848,20 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
-        <aside className="hidden w-72 shrink-0 border-r border-gray-800 bg-black px-5 py-5 xl:flex xl:flex-col">
-          <Link href="/dashboard" className="mb-10 flex items-center px-0">
+      <div className="min-h-screen lg:flex">
+        <aside className="hidden w-60 shrink-0 border-r border-gray-800 bg-black px-4 py-4 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:overflow-y-auto">
+          <Link href="/dashboard" className="mb-6 flex items-center px-0">
             <Image
               src="/edgevault-logo.png"
               alt="EdgeVault"
               width={360}
               height={160}
-              className="h-32 w-full object-contain"
+              className="h-20 w-full object-contain"
               priority
             />
           </Link>
 
-          <nav className="space-y-1">
+          <nav className="flex-1 space-y-1 overflow-y-auto pr-1">
             {sidebarItems.map((item) => {
               const Icon = item.icon;
               const isActive = selectedSection === item.section;
@@ -1926,8 +1926,56 @@ export default function DashboardPage() {
           </div>
         </aside>
 
-        <section className="flex-1 overflow-hidden px-4 py-4 lg:px-6">
-          <div className="grid gap-5 2xl:grid-cols-[1fr_270px]">
+        <section className="min-w-0 flex-1 overflow-x-hidden px-3 py-3 sm:px-4 lg:px-5 xl:px-6">
+          <div className="mb-4 border border-gray-800 bg-[#0b0b0b] lg:hidden">
+            <div className="flex items-center justify-between gap-3 px-3 py-2">
+              <Link href="/dashboard" className="min-w-0">
+                <Image
+                  src="/edgevault-logo.png"
+                  alt="EdgeVault"
+                  width={220}
+                  height={80}
+                  className="h-12 w-auto max-w-[180px] object-contain"
+                  priority
+                />
+              </Link>
+
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="inline-flex shrink-0 items-center gap-2 border border-red-500/30 bg-red-500/10 px-3 py-2 font-mono text-xs font-bold text-red-300 transition hover:bg-red-500/20"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+            </div>
+
+            <nav className="flex gap-2 overflow-x-auto border-t border-gray-800 p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {sidebarItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = selectedSection === item.section;
+
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => setSelectedSection(item.section)}
+                    className={
+                      isActive
+                        ? "flex min-w-max items-center gap-2 border border-yellow-400 bg-yellow-400 px-3 py-2 font-mono text-xs font-bold text-black"
+                        : "flex min-w-max items-center gap-2 border border-gray-800 bg-black px-3 py-2 font-mono text-xs font-medium text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
+                    }
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_260px]">
+            <div className="min-w-0">
             {selectedSection === "overview" ? (
               <OverviewSection
                 onSelectSection={setSelectedSection}
@@ -1948,6 +1996,8 @@ export default function DashboardPage() {
             ) : (
               <WorkspacePlaceholder selectedSection={selectedSection} />
             )}
+
+            </div>
 
             <RightPanel onSelectSection={setSelectedSection} />
           </div>
