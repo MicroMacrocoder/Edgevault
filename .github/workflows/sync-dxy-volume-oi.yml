@@ -1,0 +1,41 @@
+name: Sync DXY Volume and Open Interest
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # Runs Monday through Saturday at 6:30 UTC.
+    # This allows Stooq time to publish completed Open Interest data.
+    - cron: "30 6 * * 1-6"
+
+permissions:
+  contents: read
+
+jobs:
+  sync-dxy-volume-oi:
+    name: Collect and save DXY data
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Download EdgeVault code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Sync Stooq DXY Volume and Open Interest
+        run: npx tsx scripts/sync-stooq-dxy.ts

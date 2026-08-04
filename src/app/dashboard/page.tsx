@@ -25,6 +25,7 @@ import ConnectPlatformWorkspace from "@/components/dashboard/ConnectPlatformWork
 import NewEntryWorkspace from "@/components/dashboard/NewEntryWorkspace";
 import JournalWorkspace from "@/components/dashboard/JournalWorkspace";
 import PerformanceWorkspace from "@/components/dashboard/PerformanceWorkspace";
+import EconomicCalendar from "@/components/fundamentals/EconomicCalendar";
 import {
   Area,
   AreaChart,
@@ -45,7 +46,6 @@ import {
   BarChart3,
   BookOpen,
   Calculator,
-  CalendarDays,
   ChevronRight,
   ClipboardList,
   DollarSign,
@@ -599,43 +599,6 @@ const cotPreviewData: Record<string, CotPreviewPoint[]> = {
   ],
 };
 
-const economicCalendarPreview = [
-  {
-    time: "Released",
-    currency: "USD",
-    event: "Core CPI m/m",
-    impact: "High",
-    status: "Actual released",
-  },
-  {
-    time: "09:30",
-    currency: "GBP",
-    event: "Claimant Count Change",
-    impact: "Medium",
-    status: "Upcoming",
-  },
-  {
-    time: "13:30",
-    currency: "USD",
-    event: "Retail Sales m/m",
-    impact: "High",
-    status: "Upcoming",
-  },
-  {
-    time: "15:00",
-    currency: "USD",
-    event: "Fed Chair Speech",
-    impact: "High",
-    status: "Upcoming",
-  },
-  {
-    time: "23:50",
-    currency: "JPY",
-    event: "GDP q/q",
-    impact: "Medium",
-    status: "Upcoming",
-  },
-];
 
 function DashboardWidgetHeader({
   title,
@@ -689,18 +652,6 @@ type DashboardCOTChartPoint = {
   open_interest: number;
 };
 
-type DashboardEconomicEvent = {
-  id?: string;
-  currency: string;
-  title: string;
-  impact: string;
-  event_time: string;
-  actual: number | null;
-  forecast: number | null;
-  previous: number | null;
-  unit: string;
-  status: string;
-};
 
 type DashboardJournalPreview = {
   id: string;
@@ -755,44 +706,6 @@ function formatDashboardDate(dateValue?: string | null) {
   });
 }
 
-function formatDashboardTime(dateValue?: string | null) {
-  if (!dateValue) {
-    return "Time N/A";
-  }
-
-  const parsedDate = new Date(dateValue);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "Time N/A";
-  }
-
-  return parsedDate.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatCalendarValue(value: number | null, unit: string) {
-  if (value === null || value === undefined) {
-    return "Pending";
-  }
-
-  return `${value}${unit ? " " + unit : ""}`;
-}
-
-function getImpactBadgeClass(impact: string) {
-  const cleanImpact = String(impact || "").toLowerCase();
-
-  if (cleanImpact === "high") {
-    return "bg-red-500/20 text-red-300";
-  }
-
-  if (cleanImpact === "medium") {
-    return "bg-yellow-400/10 text-yellow-400";
-  }
-
-  return "bg-green-500/15 text-green-400";
-}
 
 function OverviewSection({
   onSelectSection,
@@ -814,9 +727,6 @@ function OverviewSection({
   const [isLoadingCot, setIsLoadingCot] = useState(true);
   const [cotMessage, setCotMessage] = useState("");
 
-  const [economicEvents, setEconomicEvents] = useState<DashboardEconomicEvent[]>([]);
-  const [isLoadingCalendar, setIsLoadingCalendar] = useState(true);
-  const [calendarMessage, setCalendarMessage] = useState("");
 
   const [journalPreview, setJournalPreview] = useState<DashboardJournalPreview[]>([]);
   const [tradeLogPreview, setTradeLogPreview] = useState<DashboardTradeLogPreview[]>([]);
@@ -900,94 +810,6 @@ function OverviewSection({
     }
   }
 
-  async function loadDashboardCalendar() {
-    setIsLoadingCalendar(true);
-    setCalendarMessage("");
-
-    try {
-      const response = await fetch("/api/fundamentals", { cache: "no-store" });
-
-      if (!response.ok) {
-        throw new Error("Could not load economic calendar.");
-      }
-
-      const data = await response.json();
-      const now = Date.now();
-
-      const mappedEvents = Array.isArray(data)
-        ? data.map((item: any, index: number) => {
-            const eventTime = item.releaseDate || item.event_time || "";
-            const eventTimestamp = new Date(eventTime).getTime();
-            const hasReleased =
-              Number.isFinite(eventTimestamp) && eventTimestamp <= now;
-
-            return {
-              id: `${item.currency || "event"}-${item.indicator || item.title || index}`,
-              currency: item.currency || "N/A",
-              title: item.indicator || item.title || "Untitled event",
-              impact: item.impact || "Low",
-              event_time: eventTime,
-              actual:
-                item.actual === undefined || item.actual === null
-                  ? null
-                  : Number(item.actual),
-              forecast:
-                item.forecast === undefined || item.forecast === null
-                  ? null
-                  : Number(item.forecast),
-              previous:
-                item.previous === undefined || item.previous === null
-                  ? null
-                  : Number(item.previous),
-              unit: item.unit || "",
-              status: hasReleased ? "Released" : "Upcoming",
-            };
-          })
-        : [];
-
-      const released = mappedEvents
-        .filter((event: DashboardEconomicEvent) => {
-          const eventTimestamp = new Date(event.event_time).getTime();
-          return Number.isFinite(eventTimestamp) && eventTimestamp <= now;
-        })
-        .sort(
-          (a: DashboardEconomicEvent, b: DashboardEconomicEvent) =>
-            new Date(b.event_time).getTime() - new Date(a.event_time).getTime(),
-        )
-        .slice(0, 1);
-
-      const upcoming = mappedEvents
-        .filter((event: DashboardEconomicEvent) => {
-          const eventTimestamp = new Date(event.event_time).getTime();
-          return Number.isFinite(eventTimestamp) && eventTimestamp > now;
-        })
-        .sort(
-          (a: DashboardEconomicEvent, b: DashboardEconomicEvent) =>
-            new Date(a.event_time).getTime() - new Date(b.event_time).getTime(),
-        )
-        .slice(0, 2);
-
-      const fallbackEvents = mappedEvents
-        .sort(
-          (a: DashboardEconomicEvent, b: DashboardEconomicEvent) =>
-            new Date(a.event_time).getTime() - new Date(b.event_time).getTime(),
-        )
-        .slice(0, 3);
-
-      const previewEvents =
-        released.length + upcoming.length > 0
-          ? [...released, ...upcoming]
-          : fallbackEvents;
-
-      setEconomicEvents(previewEvents);
-    } catch (error) {
-      console.log("LOAD DASHBOARD CALENDAR ERROR:", error);
-      setCalendarMessage("Could not load today's calendar preview.");
-      setEconomicEvents([]);
-    } finally {
-      setIsLoadingCalendar(false);
-    }
-  }
 
   async function loadDashboardJournalWidgets() {
     try {
@@ -1054,7 +876,6 @@ function OverviewSection({
 
   useEffect(() => {
     loadDashboardPerformance();
-    loadDashboardCalendar();
     loadDashboardJournalWidgets();
   }, []);
 
@@ -1226,58 +1047,7 @@ function OverviewSection({
             onOpen={() => onOpenFundamentalsTab("calendar")}
           />
 
-          <div className="space-y-2">
-            {isLoadingCalendar ? (
-              <div className="border border-gray-800 bg-black p-5 text-center font-mono text-sm text-gray-500">
-                Loading calendar...
-              </div>
-            ) : calendarMessage ? (
-              <div className="border border-red-500/30 bg-red-500/10 p-5 text-center font-mono text-sm text-red-300">
-                {calendarMessage}
-              </div>
-            ) : economicEvents.length === 0 ? (
-              <div className="border border-gray-800 bg-black p-5 text-center font-mono text-sm text-gray-500">
-                No calendar events found.
-              </div>
-            ) : (
-              economicEvents.map((item, index) => (
-                <button
-                  type="button"
-                  key={`${item.currency}-${item.title}-${index}`}
-                  onClick={() => onOpenFundamentalsTab("calendar")}
-                  className="flex w-full items-center justify-between gap-3 border border-gray-800 bg-black px-3 py-2 text-left transition hover:border-yellow-400"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={
-                          "px-2 py-1 font-mono text-[10px] font-bold " +
-                          getImpactBadgeClass(item.impact)
-                        }
-                      >
-                        {item.impact}
-                      </span>
-                      <span className="font-mono text-xs font-bold text-cyan-400">
-                        {item.currency}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {formatDashboardTime(item.event_time)}
-                      </span>
-                    </div>
-                    <p className="mt-2 truncate font-mono text-sm font-semibold text-white">
-                      {item.title}
-                    </p>
-                    <p className="mt-1 truncate text-xs text-gray-500">
-                      Actual: {formatCalendarValue(item.actual, item.unit)}
-                    </p>
-                  </div>
-                  <span className="whitespace-nowrap text-xs text-gray-500">
-                    {item.status}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
+          <EconomicCalendar compact />
         </DashboardCard>
       </div>
 

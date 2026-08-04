@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
-const STOOQ_DXY_URL = "https://stooq.com/q/d/?s=dx.f&i=d";
+export const STOOQ_DXY_URL = "https://stooq.com/q/d/?s=dx.f&i=d";
+
 const VOLUME_OI_TABLE = "volume_oi_data";
 
 export type StooqDxyVolumeOiRow = {
@@ -16,29 +17,43 @@ export type StooqDxyVolumeOiRow = {
 
 function getSupabaseAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Missing Supabase environment variables.");
+  if (!supabaseUrl) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL.");
   }
 
-  return createClient(supabaseUrl, supabaseKey);
+  if (!supabaseServiceRoleKey) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY.");
+  }
+
+  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 function cleanHtml(value: string) {
   return value
     .replace(/<[^>]*>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&#8211;/g, "-")
-    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#8211;/gi, "-")
+    .replace(/&minus;/gi, "-")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 function parseNumber(value: string) {
-  const cleaned = value.replace(/,/g, "").replace(/%/g, "").trim();
+  const cleaned = value
+    .replace(/,/g, "")
+    .replace(/\s/g, "")
+    .replace(/%/g, "")
+    .replace(/−/g, "-")
+    .trim();
 
   if (!cleaned || cleaned === "-") {
     return 0;
@@ -82,42 +97,47 @@ function parseStooqDate(value: string) {
   return `${year}-${month}-${day}`;
 }
 
-export async function fetchStooqDxyVolumeOiRows(): Promise<
-  StooqDxyVolumeOiRow[]
-> {
-  const response = await fetch(STOOQ_DXY_URL, {
-    cache: "no-store",
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (compatible; EdgeVault/1.0; +https://edgevault.app)",
-      Accept: "text/html,text/plain,*/*",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Stooq request failed with status ${response.status}`);
-  }
-
-  const html = await response.text();
-
+/**
+ * Parses the rendered Stooq HTML table.
+ *
+ * This function does not fetch Stooq itself. That allows the same parser
+ * to be reused by the Playwright browser collector after the browser has
+ * completed Stooq's JavaScript verification.
+ */
+export function parseStooqDxyVolumeOiRows(
+  html: string
+): StooqDxyVolumeOiRow[] {
   if (!html || !html.includes("Open Interest")) {
-    throw new Error("Stooq returned an empty or invalid HTML response.");
+    throw new Error(
+      "The rendered Stooq page does not contain the Open Interest table."
+    );
   }
 
-  const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+  const tableRows = [
+    ...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi),
+  ];
 
-  const parsedRows: StooqDxyVolumeOiRow[] = [];
+  const rowsByTradeDate = new Map<
+    string,
+    StooqDxyVolumeOiRow
+  >();
 
   for (const tableRow of tableRows) {
     const rowHtml = tableRow[1];
 
-    const cells = [...rowHtml.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+    const cells = [
+      ...rowHtml.matchAll(
+        /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi
+      ),
+    ]
       .map((cell) => cleanHtml(cell[1]))
       .filter(Boolean);
 
     /**
-     * Stooq table format:
-     * No. | Date | Open | High | Low | Close | Change % | Change | Volume | Open Interest
+     * Expected Stooq table format:
+     *
+     * No. | Date | Open | High | Low | Close |
+     * Change % | Change | Volume | Open Interest
      */
     if (cells.length < 10) {
       continue;
@@ -125,50 +145,96 @@ export async function fetchStooqDxyVolumeOiRows(): Promise<
 
     const dateCell = cells[1];
 
-    if (!/\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4}/.test(dateCell)) {
+    if (
+      !/\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4}/.test(dateCell)
+    ) {
       continue;
     }
 
+    const tradeDate = parseStooqDate(dateCell);
     const volume = parseNumber(cells[8]);
     const openInterest = parseNumber(cells[9]);
 
-    parsedRows.push({
+    rowsByTradeDate.set(tradeDate, {
       symbol: "DXY",
       currency: "USD",
       market_name: "US DOLLAR INDEX",
       exchange: "ICE",
-      trade_date: parseStooqDate(dateCell),
+      trade_date: tradeDate,
       volume,
       open_interest: openInterest,
       source: "Stooq DX.F Daily Futures",
     });
   }
 
-  parsedRows.sort((a, b) => a.trade_date.localeCompare(b.trade_date));
+  const parsedRows = [...rowsByTradeDate.values()].sort(
+    (a, b) => a.trade_date.localeCompare(b.trade_date)
+  );
 
   if (parsedRows.length === 0) {
-    throw new Error("No DXY Volume/OI rows were found from Stooq.");
+    throw new Error(
+      "No DXY Volume/OI rows were found in the rendered Stooq page."
+    );
   }
 
   return parsedRows;
 }
 
-export async function syncStooqDxyVolumeOiReports() {
-  const supabase = getSupabaseAdminClient();
+/**
+ * Retained for diagnostics and backwards compatibility.
+ *
+ * A normal server fetch may fail when Stooq requires JavaScript browser
+ * verification. The scheduled Playwright collector will use the parser
+ * above instead.
+ */
+export async function fetchStooqDxyVolumeOiRows(): Promise<
+  StooqDxyVolumeOiRow[]
+> {
+  const response = await fetch(STOOQ_DXY_URL, {
+    cache: "no-store",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/151.0.0.0 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  });
 
-  const rows = await fetchStooqDxyVolumeOiRows();
+  if (!response.ok) {
+    throw new Error(
+      `Stooq request failed with status ${response.status}.`
+    );
+  }
 
-  /**
-   * Sometimes Stooq shows today's row with Open Interest = 0.
-   * We do not save incomplete Open Interest rows.
-   */
+  const html = await response.text();
+
+  return parseStooqDxyVolumeOiRows(html);
+}
+
+/**
+ * Saves already-parsed Stooq rows to Supabase.
+ *
+ * Rows where Volume or Open Interest is zero are treated as incomplete
+ * and are not saved.
+ */
+export async function syncStooqDxyVolumeOiRows(
+  rows: StooqDxyVolumeOiRow[]
+) {
   const completeRows = rows.filter(
     (row) => row.volume > 0 && row.open_interest > 0
   );
 
   if (completeRows.length === 0) {
-    throw new Error("No complete DXY Volume/OI rows available to sync.");
+    throw new Error(
+      "No complete DXY Volume/OI rows are available to sync."
+    );
   }
+
+  const supabase = getSupabaseAdminClient();
+  const updatedAt = new Date().toISOString();
 
   const payload = completeRows.map((row) => ({
     symbol: row.symbol,
@@ -179,7 +245,7 @@ export async function syncStooqDxyVolumeOiReports() {
     volume: row.volume,
     open_interest: row.open_interest,
     source: row.source,
-    updated_at: new Date().toISOString(),
+    updated_at: updatedAt,
   }));
 
   const { data, error } = await supabase
@@ -190,11 +256,26 @@ export async function syncStooqDxyVolumeOiReports() {
     .select();
 
   if (error) {
-    throw new Error(`Failed to sync DXY Volume/OI: ${error.message}`);
+    throw new Error(
+      `Failed to sync DXY Volume/OI: ${error.message}`
+    );
   }
 
   return {
     synced: data?.length || 0,
     latestComplete: completeRows[completeRows.length - 1],
+    updatedAt,
   };
+}
+
+/**
+ * Original server-fetch workflow retained for diagnostic routes.
+ *
+ * The automated collector will call syncStooqDxyVolumeOiRows() after
+ * Playwright provides the rendered HTML.
+ */
+export async function syncStooqDxyVolumeOiReports() {
+  const rows = await fetchStooqDxyVolumeOiRows();
+
+  return syncStooqDxyVolumeOiRows(rows);
 }
