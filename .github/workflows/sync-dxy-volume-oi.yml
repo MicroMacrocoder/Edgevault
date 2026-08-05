@@ -4,9 +4,10 @@ on:
   workflow_dispatch:
 
   schedule:
-    # Runs Monday through Saturday at 6:30 UTC.
-    # This allows Stooq time to publish completed Open Interest data.
-    - cron: "30 6 * * 1-6"
+    # Runs Monday through Saturday at 6:00 PM New York time.
+    # America/New_York automatically handles EST and EDT changes.
+    - cron: "0 18 * * 1-6"
+      timezone: "America/New_York"
 
 permissions:
   contents: read
