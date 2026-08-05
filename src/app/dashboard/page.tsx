@@ -20,6 +20,10 @@ import {
   type TradeLogWithRows,
 } from "@/lib/performanceMetrics";
 import FundamentalsWorkspace from "@/components/dashboard/FundamentalsWorkspace";
+import TechnicalsWorkspace, {
+  type TechnicalsTab,
+} from "@/components/dashboard/TechnicalsWorkspace";
+import CurrencyStrengthDashboardWidget from "@/components/dashboard/CurrencyStrengthDashboardWidget";
 import RiskManagementWorkspace from "@/components/dashboard/RiskManagementWorkspace";
 import ConnectPlatformWorkspace from "@/components/dashboard/ConnectPlatformWorkspace";
 import NewEntryWorkspace from "@/components/dashboard/NewEntryWorkspace";
@@ -52,6 +56,7 @@ import {
   FileText,
   Globe,
   Grid2X2,
+  Gauge,
   LineChartIcon,
   Lock,
   LogOut,
@@ -71,6 +76,7 @@ type DashboardSection =
   | "new-entry"
   | "saved-trade-logs"
   | "fundamentals"
+  | "technicals"
   | "risk-management"
   | "connect-platform"
   | "reports"
@@ -181,6 +187,11 @@ const sidebarItems = [
     label: "Fundamentals",
     section: "fundamentals" as DashboardSection,
     icon: BarChart3,
+  },
+  {
+    label: "Technicals",
+    section: "technicals" as DashboardSection,
+    icon: Gauge,
   },
   {
     label: "Risk Management",
@@ -294,6 +305,13 @@ const sectionDetails: Record<
     description:
       "This area contains the fundamentals workspace, including COT, Volume/OI, and economic calendar modules.",
     actions: ["COT reports", "Volume/OI", "Economic calendar"],
+  },
+  technicals: {
+    title: "Technicals",
+    subtitle: "Currency strength and momentum tools.",
+    description:
+      "This area contains the technical-analysis workspace, including Currency Strength and Currency Momentum meters.",
+    actions: ["Currency strength", "Currency momentum"],
   },
   "risk-management": {
     title: "Risk Management",
@@ -710,9 +728,11 @@ function formatDashboardDate(dateValue?: string | null) {
 function OverviewSection({
   onSelectSection,
   onOpenFundamentalsTab,
+  onOpenTechnicalsTab,
 }: {
   onSelectSection: (section: DashboardSection) => void;
   onOpenFundamentalsTab: (tab: FundamentalsTab) => void;
+  onOpenTechnicalsTab: (tab: TechnicalsTab) => void;
 }) {
   const [tradeLogs, setTradeLogs] = useState<TradeLogWithRows[]>([]);
   const [selectedTradeLogId, setSelectedTradeLogId] = useState("all");
@@ -1050,6 +1070,10 @@ function OverviewSection({
           <EconomicCalendar compact />
         </DashboardCard>
       </div>
+
+      <CurrencyStrengthDashboardWidget
+        onOpen={() => onOpenTechnicalsTab("currency-strength")}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         <DashboardCard className="p-5">
@@ -1534,6 +1558,8 @@ export default function DashboardPage() {
     useState<DashboardSection>("overview");
   const [selectedFundamentalsTab, setSelectedFundamentalsTab] =
     useState<FundamentalsTab>("hub");
+  const [selectedTechnicalsTab, setSelectedTechnicalsTab] =
+    useState<TechnicalsTab>("hub");
 
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [currentUserEmail, setCurrentUserEmail] = useState("");
@@ -1592,6 +1618,11 @@ export default function DashboardPage() {
   function handleOpenFundamentalsTab(tab: FundamentalsTab) {
     setSelectedFundamentalsTab(tab);
     setSelectedSection("fundamentals");
+  }
+
+  function handleOpenTechnicalsTab(tab: TechnicalsTab) {
+    setSelectedTechnicalsTab(tab);
+    setSelectedSection("technicals");
   }
 
   if (isCheckingSession) {
@@ -1750,6 +1781,7 @@ export default function DashboardPage() {
               <OverviewSection
                 onSelectSection={setSelectedSection}
                 onOpenFundamentalsTab={handleOpenFundamentalsTab}
+                onOpenTechnicalsTab={handleOpenTechnicalsTab}
               />
             ) : selectedSection === "journal" ? (
               <JournalWorkspace />
@@ -1757,6 +1789,8 @@ export default function DashboardPage() {
               <PerformanceWorkspace />
             ) : selectedSection === "fundamentals" ? (
               <FundamentalsWorkspace initialTab={selectedFundamentalsTab} />
+            ) : selectedSection === "technicals" ? (
+              <TechnicalsWorkspace initialTab={selectedTechnicalsTab} />
             ) : selectedSection === "risk-management" ? (
               <RiskManagementWorkspace />
             ) : selectedSection === "connect-platform" ? (
