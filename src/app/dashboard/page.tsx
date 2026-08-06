@@ -24,6 +24,14 @@ import TechnicalsWorkspace, {
   type TechnicalsTab,
 } from "@/components/dashboard/TechnicalsWorkspace";
 import CurrencyStrengthDashboardWidget from "@/components/dashboard/CurrencyStrengthDashboardWidget";
+import MomentumStrengthDashboardWidget from "@/components/dashboard/MomentumStrengthDashboardWidget";
+import MarketSnapshotDashboardWidget from "@/components/dashboard/MarketSnapshotDashboardWidget";
+import DashboardPreferencesProvider, {
+  type DashboardWidgetId,
+  type DashboardWidgetVisibility,
+  useDashboardPreferences,
+} from "@/components/dashboard/DashboardPreferencesProvider";
+import CompactCycleSelect from "@/components/dashboard/CompactCycleSelect";
 import RiskManagementWorkspace from "@/components/dashboard/RiskManagementWorkspace";
 import ConnectPlatformWorkspace from "@/components/dashboard/ConnectPlatformWorkspace";
 import NewEntryWorkspace from "@/components/dashboard/NewEntryWorkspace";
@@ -49,10 +57,13 @@ import {
 import {
   BarChart3,
   BookOpen,
+  Check,
   Calculator,
   ChevronRight,
   ClipboardList,
   DollarSign,
+  Eye,
+  EyeOff,
   FileText,
   Globe,
   Grid2X2,
@@ -65,8 +76,11 @@ import {
   PlusCircle,
   RadioTower,
   RefreshCw,
+  RotateCcw,
   Settings,
+  Settings2,
   ShieldCheck,
+  X,
 } from "lucide-react";
 
 type DashboardSection =
@@ -247,13 +261,6 @@ const quickAccessItems = [
     icon: ShieldCheck,
     color: "bg-red-500",
   },
-];
-
-const marketSnapshot = [
-  { symbol: "DXY", value: "104.28", change: "+0.32%", positive: true },
-  { symbol: "VIX", value: "12.45", change: "-1.22%", positive: false },
-  { symbol: "GOLD", value: "2,341.80", change: "+0.85%", positive: true },
-  { symbol: "NAS100", value: "18,567.80", change: "+0.62%", positive: true },
 ];
 
 const sectionDetails: Record<
@@ -725,6 +732,53 @@ function formatDashboardDate(dateValue?: string | null) {
 }
 
 
+const dashboardWidgetOptions: {
+  id: DashboardWidgetId;
+  label: string;
+  description: string;
+}[] = [
+  {
+    id: "cot",
+    label: "COT Chart",
+    description: "Full-width Commitment of Traders chart.",
+  },
+  {
+    id: "currency-strength",
+    label: "Currency Strength",
+    description: "Compact strength readings and refresh controls.",
+  },
+  {
+    id: "momentum-strength",
+    label: "Momentum Strength",
+    description: "DXY-first momentum tracker and future currency templates.",
+  },
+  {
+    id: "performance",
+    label: "Performance Chart",
+    description: "Full-width equity and return chart.",
+  },
+  {
+    id: "economic-calendar",
+    label: "Economic Calendar",
+    description: "Upcoming economic events and releases.",
+  },
+  {
+    id: "market-snapshot",
+    label: "Market Snapshot",
+    description: "Current DXY and major USD-pair prices.",
+  },
+  {
+    id: "saved-trade-logs",
+    label: "Saved Trade Logs",
+    description: "Recent trade-log templates.",
+  },
+  {
+    id: "journal-library",
+    label: "Journal Entries",
+    description: "Recent analysis and journal entries.",
+  },
+];
+
 function OverviewSection({
   onSelectSection,
   onOpenFundamentalsTab,
@@ -734,22 +788,39 @@ function OverviewSection({
   onOpenFundamentalsTab: (tab: FundamentalsTab) => void;
   onOpenTechnicalsTab: (tab: TechnicalsTab) => void;
 }) {
+  const {
+    preferences,
+    isReady: arePreferencesReady,
+    isSignedIn: arePreferencesSignedIn,
+    syncStatus: preferenceSyncStatus,
+    syncError: preferenceSyncError,
+    updateSection: updatePreferenceSection,
+  } = useDashboardPreferences();
+
+  const visibleWidgets = preferences.widgetVisibility;
+  const selectedTradeLogId = preferences.overview.selectedTradeLogId;
+  const dateRange = preferences.overview.performanceDateRange;
+  const chartMode = preferences.overview.performanceChartMode;
+  const selectedCotMarket = preferences.overview.selectedCotMarket;
+
   const [tradeLogs, setTradeLogs] = useState<TradeLogWithRows[]>([]);
-  const [selectedTradeLogId, setSelectedTradeLogId] = useState("all");
-  const [dateRange, setDateRange] = useState<PerformanceDateRange>("ALL");
-  const [chartMode, setChartMode] =
-    useState<PerformanceChartMode>("percentage");
   const [isLoadingPerformance, setIsLoadingPerformance] = useState(true);
   const [performanceMessage, setPerformanceMessage] = useState("");
 
-  const [selectedCotMarket, setSelectedCotMarket] = useState("DXY");
   const [cotChartRows, setCotChartRows] = useState<DashboardCOTChartPoint[]>([]);
   const [isLoadingCot, setIsLoadingCot] = useState(true);
   const [cotMessage, setCotMessage] = useState("");
 
+  const [journalPreview, setJournalPreview] =
+    useState<DashboardJournalPreview[]>([]);
+  const [tradeLogPreview, setTradeLogPreview] =
+    useState<DashboardTradeLogPreview[]>([]);
 
-  const [journalPreview, setJournalPreview] = useState<DashboardJournalPreview[]>([]);
-  const [tradeLogPreview, setTradeLogPreview] = useState<DashboardTradeLogPreview[]>([]);
+  const [draftVisibleWidgets, setDraftVisibleWidgets] =
+    useState<DashboardWidgetVisibility>({
+      ...preferences.widgetVisibility,
+    });
+  const [isEditingDashboard, setIsEditingDashboard] = useState(false);
 
   async function loadDashboardPerformance() {
     setIsLoadingPerformance(true);
@@ -830,7 +901,6 @@ function OverviewSection({
     }
   }
 
-
   async function loadDashboardJournalWidgets() {
     try {
       const { data } = await supabase.auth.getSession();
@@ -895,13 +965,17 @@ function OverviewSection({
   }
 
   useEffect(() => {
-    loadDashboardPerformance();
-    loadDashboardJournalWidgets();
+    void loadDashboardPerformance();
+    void loadDashboardJournalWidgets();
   }, []);
 
   useEffect(() => {
-    loadDashboardCot();
-  }, [selectedCotMarket]);
+    if (!arePreferencesReady) {
+      return;
+    }
+
+    void loadDashboardCot();
+  }, [arePreferencesReady, selectedCotMarket]);
 
   const metrics = useMemo(
     () =>
@@ -950,11 +1024,85 @@ function OverviewSection({
     dashboardCOTMarkets.find((market) => market.symbol === selectedCotMarket)
       ?.label || selectedCotMarket;
 
+  const visibleWidgetCount = Object.values(visibleWidgets).filter(Boolean).length;
+
+  function openDashboardEditor() {
+    setDraftVisibleWidgets({ ...visibleWidgets });
+    setIsEditingDashboard(true);
+  }
+
+  function toggleDraftWidget(widgetId: DashboardWidgetId) {
+    setDraftVisibleWidgets((current) => ({
+      ...current,
+      [widgetId]: !current[widgetId],
+    }));
+  }
+
+  function updateOverviewPreferences(
+    patch: Partial<typeof preferences.overview>,
+  ) {
+    void updatePreferenceSection("overview", {
+      ...preferences.overview,
+      ...patch,
+    });
+  }
+
+  function saveDashboardPreferences() {
+    void updatePreferenceSection("widgetVisibility", {
+      ...draftVisibleWidgets,
+    });
+    setIsEditingDashboard(false);
+  }
+
+  function resetDashboardPreferences() {
+    setDraftVisibleWidgets({
+      cot: true,
+      "currency-strength": true,
+      "momentum-strength": true,
+      performance: true,
+      "economic-calendar": true,
+      "market-snapshot": true,
+      "saved-trade-logs": true,
+      "journal-library": true,
+    });
+  }
+
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+      <div className="flex flex-col gap-3 border border-gray-800 bg-[#111111] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">
+            Dashboard overview
+          </p>
+          <p className="mt-1 text-sm text-gray-400">
+            {visibleWidgetCount} of {dashboardWidgetOptions.length} widgets are visible.
+          </p>
+          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-gray-500">
+            {!arePreferencesReady
+              ? "Loading dashboard settings"
+              : preferenceSyncStatus === "saving"
+                ? "Saving to Supabase"
+                : preferenceSyncStatus === "synced"
+                  ? "Synced across devices"
+                  : preferenceSyncStatus === "local"
+                    ? "Saved on this device"
+                    : `Sync issue${preferenceSyncError ? `: ${preferenceSyncError}` : ""}`}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={openDashboardEditor}
+          className="inline-flex w-fit items-center gap-2 border border-gray-800 px-3 py-2 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
+        >
+          <Settings2 className="h-4 w-4" />
+          Edit dashboard
+        </button>
+      </div>
+
+      {visibleWidgets.cot ? (
         <DashboardCard className="p-5">
-          <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">
                 COT
@@ -962,29 +1110,28 @@ function OverviewSection({
               <h1 className="mt-1 font-mono text-lg font-bold text-white">
                 {selectedMarketLabel}
               </h1>
+              <p className="mt-1 text-xs text-gray-500">
+                Full-width chart preview for clearer positioning context.
+              </p>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="border border-gray-800 bg-black px-4 py-3 font-mono text-xs font-bold text-yellow-400">
-                Market: {selectedCotMarket}
-              </div>
-
-              <select
+            <div className="grid gap-3 sm:grid-cols-[220px_auto] sm:items-end">
+              <CompactCycleSelect<string>
+                label="Market"
                 value={selectedCotMarket}
-                onChange={(event) => setSelectedCotMarket(event.target.value)}
-                className="border border-gray-800 bg-black px-4 py-3 font-mono text-xs font-bold text-white outline-none transition focus:border-yellow-400"
-              >
-                {dashboardCOTMarkets.map((market) => (
-                  <option key={market.symbol} value={market.symbol}>
-                    {market.symbol}
-                  </option>
-                ))}
-              </select>
+                options={dashboardCOTMarkets.map((market) => ({
+                  value: market.symbol,
+                  label: market.symbol,
+                }))}
+                onChange={(value) =>
+                  updateOverviewPreferences({ selectedCotMarket: value })}
+                accent="cyan"
+              />
 
               <button
                 type="button"
                 onClick={() => onOpenFundamentalsTab("cot")}
-                className="border border-gray-800 px-4 py-3 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
+                className="min-h-9 border border-gray-800 px-4 py-2 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
               >
                 Open COT
               </button>
@@ -996,7 +1143,7 @@ function OverviewSection({
             onClick={() => onOpenFundamentalsTab("cot")}
             className="block w-full border border-gray-800 bg-black p-4 text-left transition hover:border-yellow-400/60"
           >
-            <div className="h-[220px]">
+            <div className="h-[260px]">
               {isLoadingCot ? (
                 <div className="flex h-full items-center justify-center font-mono text-sm text-gray-500">
                   Loading COT chart...
@@ -1021,7 +1168,9 @@ function OverviewSection({
                     <YAxis
                       stroke="#9ca3af"
                       tick={{ fontSize: 11 }}
-                      tickFormatter={(value) => formatDashboardNumber(Number(value))}
+                      tickFormatter={(value) =>
+                        formatDashboardNumber(Number(value))
+                      }
                     />
                     <Tooltip
                       contentStyle={{
@@ -1030,7 +1179,9 @@ function OverviewSection({
                         borderRadius: "0px",
                         color: "#e5e7eb",
                       }}
-                      formatter={(value) => formatDashboardNumber(Number(value))}
+                      formatter={(value) =>
+                        formatDashboardNumber(Number(value))
+                      }
                     />
                     <Line
                       type="monotone"
@@ -1059,52 +1210,129 @@ function OverviewSection({
             </div>
           </button>
         </DashboardCard>
+      ) : null}
 
+      {visibleWidgets["currency-strength"] ||
+      visibleWidgets["momentum-strength"] ? (
+        <div
+          className={
+            visibleWidgets["currency-strength"] &&
+            visibleWidgets["momentum-strength"]
+              ? "grid items-stretch gap-4 lg:grid-cols-2"
+              : "grid items-stretch gap-4"
+          }
+        >
+          {visibleWidgets["currency-strength"] ? (
+            <CurrencyStrengthDashboardWidget
+              onOpen={() => onOpenTechnicalsTab("currency-strength")}
+            />
+          ) : null}
+
+          {visibleWidgets["momentum-strength"] ? (
+            <MomentumStrengthDashboardWidget
+              onOpen={() => onOpenTechnicalsTab("currency-momentum")}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {visibleWidgets.performance ? (
         <DashboardCard className="p-5">
-          <DashboardWidgetHeader
-            label="Fundamentals"
-            title="Today's Economic Calendar"
-            onOpen={() => onOpenFundamentalsTab("calendar")}
-          />
+          <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-yellow-400">
+                Performance
+              </p>
+              <h2 className="mt-1 font-mono text-lg font-bold text-white">
+                Account Performance
+              </h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Full-width chart with compact account, period and display controls.
+              </p>
+            </div>
 
-          <EconomicCalendar compact />
-        </DashboardCard>
-      </div>
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[650px]">
+              <CompactCycleSelect<string>
+                label="Trade log"
+                value={selectedTradeLogId}
+                options={[
+                  { value: "all", label: "General Overview" },
+                  ...tradeLogs.map((log) => ({
+                    value: log.id,
+                    label: log.logName || "Untitled Trade Log",
+                  })),
+                ]}
+                onChange={(value) =>
+                  updateOverviewPreferences({ selectedTradeLogId: value })}
+                accent="yellow"
+              />
 
-      <CurrencyStrengthDashboardWidget
-        onOpen={() => onOpenTechnicalsTab("currency-strength")}
-      />
+              <CompactCycleSelect<PerformanceDateRange>
+                label="Date range"
+                value={dateRange}
+                options={overviewDateRanges.map((range) => ({
+                  value: range,
+                  label: range,
+                }))}
+                onChange={(value) =>
+                  updateOverviewPreferences({ performanceDateRange: value })}
+                accent="cyan"
+              />
 
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
-        <DashboardCard className="p-5">
-          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <select
-              value={selectedTradeLogId}
-              onChange={(event) => setSelectedTradeLogId(event.target.value)}
-              className="border border-gray-800 bg-black px-4 py-3 font-mono text-xs font-bold text-white outline-none transition focus:border-yellow-400"
-            >
-              <option value="all">General Overview</option>
-              {tradeLogs.map((log) => (
-                <option key={log.id} value={log.id}>
-                  {log.logName || "Untitled Trade Log"}
-                </option>
-              ))}
-            </select>
+              <CompactCycleSelect<PerformanceChartMode>
+                label="Chart display"
+                value={chartMode}
+                options={[
+                  { value: "percentage", label: "Percentage" },
+                  { value: "balance", label: "Balance" },
+                ]}
+                onChange={(value) =>
+                  updateOverviewPreferences({ performanceChartMode: value })}
+                accent="yellow"
+              />
+            </div>
+          </div>
+
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-wrap items-end gap-5">
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.24em] text-gray-500">
+                  Total Return
+                </p>
+                <p
+                  className={
+                    metrics.totalReturnPercent >= 0
+                      ? "mt-1 font-mono text-3xl font-black text-green-400"
+                      : "mt-1 font-mono text-3xl font-black text-red-400"
+                  }
+                >
+                  {isLoadingPerformance ? "..." : chartValueText}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.24em] text-gray-500">
+                  Net Profit
+                </p>
+                <p className="mt-1 font-mono text-lg font-bold text-cyan-400">
+                  {formatMoney(metrics.netProfit, metrics.accountCurrency)}
+                </p>
+              </div>
+            </div>
 
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={loadDashboardPerformance}
-                className="inline-flex items-center justify-center gap-2 border border-gray-800 px-4 py-3 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
+                onClick={() => void loadDashboardPerformance()}
+                className="inline-flex items-center gap-2 border border-gray-800 px-3 py-2 font-mono text-xs font-bold text-gray-300 transition hover:border-cyan-400 hover:text-cyan-300"
               >
                 <RefreshCw className="h-4 w-4" />
                 Reload
               </button>
-
               <button
                 type="button"
                 onClick={() => onSelectSection("performance")}
-                className="border border-gray-800 px-4 py-3 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
+                className="border border-gray-800 px-3 py-2 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
               >
                 Open Performance
               </button>
@@ -1116,85 +1344,7 @@ function OverviewSection({
             onClick={() => onSelectSection("performance")}
             className="block w-full border border-gray-800 bg-black p-4 text-left transition hover:border-yellow-400/60"
           >
-            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap items-end gap-5">
-                <div>
-                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-gray-500">
-                    Total Return
-                  </p>
-                  <p
-                    className={
-                      metrics.totalReturnPercent >= 0
-                        ? "mt-1 font-mono text-3xl font-black text-green-400"
-                        : "mt-1 font-mono text-3xl font-black text-red-400"
-                    }
-                  >
-                    {isLoadingPerformance ? "..." : chartValueText}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-gray-500">
-                    Net Profit
-                  </p>
-                  <p className="mt-1 font-mono text-lg font-bold text-cyan-400">
-                    {formatMoney(metrics.netProfit, metrics.accountCurrency)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {overviewDateRanges.map((range) => (
-                  <span
-                    key={range}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setDateRange(range);
-                    }}
-                    className={
-                      dateRange === range
-                        ? "cursor-pointer bg-yellow-400 px-3 py-2 font-mono text-xs font-bold text-black"
-                        : "cursor-pointer border border-gray-800 px-3 py-2 font-mono text-xs font-bold text-gray-400 hover:border-yellow-400 hover:text-yellow-400"
-                    }
-                  >
-                    {range}
-                  </span>
-                ))}
-
-                <span
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setChartMode("balance");
-                  }}
-                  className={
-                    chartMode === "balance"
-                      ? "cursor-pointer bg-cyan-400 px-3 py-2 font-mono text-xs font-bold text-black"
-                      : "cursor-pointer border border-gray-800 px-3 py-2 font-mono text-xs font-bold text-gray-400 hover:border-cyan-400 hover:text-cyan-400"
-                  }
-                >
-                  Balance
-                </span>
-
-                <span
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setChartMode("percentage");
-                  }}
-                  className={
-                    chartMode === "percentage"
-                      ? "cursor-pointer bg-yellow-400 px-3 py-2 font-mono text-xs font-bold text-black"
-                      : "cursor-pointer border border-gray-800 px-3 py-2 font-mono text-xs font-bold text-gray-400 hover:border-yellow-400 hover:text-yellow-400"
-                  }
-                >
-                  %
-                </span>
-              </div>
-            </div>
-
-            <div className="h-[220px] border border-gray-800 bg-[#050505] p-3">
+            <div className="h-[270px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={performanceChartData}>
                   <defs>
@@ -1261,96 +1411,226 @@ function OverviewSection({
             <p className="mt-3 text-sm text-gray-500">{chartSubText}</p>
           )}
         </DashboardCard>
+      ) : null}
 
-        <div className="grid gap-4 xl:grid-rows-2">
-          <DashboardCard className="min-h-0 overflow-hidden p-5">
-            <DashboardWidgetHeader
-              label="Journal"
-              title="Library"
-              onOpen={() => onSelectSection("journal")}
-            />
+      {visibleWidgets["economic-calendar"] ||
+      visibleWidgets["market-snapshot"] ? (
+        <div
+          className={
+            visibleWidgets["economic-calendar"] &&
+            visibleWidgets["market-snapshot"]
+              ? "grid items-stretch gap-4 lg:grid-cols-2"
+              : "grid items-stretch gap-4"
+          }
+        >
+          {visibleWidgets["economic-calendar"] ? (
+            <DashboardCard className="h-full p-5">
+              <DashboardWidgetHeader
+                label="Fundamentals"
+                title="Today's Economic Calendar"
+                onOpen={() => onOpenFundamentalsTab("calendar")}
+              />
+              <EconomicCalendar compact />
+            </DashboardCard>
+          ) : null}
 
-            <div className="space-y-3">
-              {journalPreview.length === 0 ? (
-                <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
-                  No saved analysis yet.
-                </div>
-              ) : (
-                journalPreview.slice(0, 2).map((entry) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    onClick={() => onSelectSection("journal")}
-                    className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
-                  >
-                    <p className="truncate font-mono text-sm font-bold text-white">
-                      {entry.title}
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500">
-                      {entry.instrument} • {formatDashboardDate(entry.createdAt)}
-                    </p>
-                  </button>
-                ))
-              )}
-            </div>
-          </DashboardCard>
-
-          <DashboardCard className="min-h-0 overflow-hidden p-5">
-            <DashboardWidgetHeader
-              label="Trade Log"
-              title="Saved Trade Logs"
-              onOpen={() => onSelectSection("journal")}
-            />
-
-            <div className="space-y-3">
-              {tradeLogPreview.length === 0 ? (
-                <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
-                  No saved trade logs yet.
-                </div>
-              ) : (
-                tradeLogPreview.slice(0, 2).map((log) => (
-                  <button
-                    key={log.id}
-                    type="button"
-                    onClick={() => onSelectSection("journal")}
-                    className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
-                  >
-                    <p className="truncate font-mono text-sm font-bold text-white">
-                      {log.logName}
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Initial: {formatMoney(log.initialBalance, log.accountCurrency)}
-                    </p>
-                  </button>
-                ))
-              )}
-            </div>
-          </DashboardCard>
+          {visibleWidgets["market-snapshot"] ? (
+            <MarketSnapshotDashboardWidget />
+          ) : null}
         </div>
-      </div>
+      ) : null}
 
-      <DashboardCard className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          ["Workspace", "Plan and save analysis", "journal"],
-          ["MetaTrader", "Connect MT5 platform", "connect-platform"],
-          ["MT5 Sync", "Import and sync trades", "connect-platform"],
-          ["Risk", "Position sizing and rules", "risk-management"],
-        ].map(([label, value, section]) => (
-          <button
-            key={label}
-            type="button"
-            onClick={() => onSelectSection(section as DashboardSection)}
-            className="border border-gray-800 bg-black p-4 text-left transition hover:border-yellow-400"
-          >
-            <p className="font-mono text-xs uppercase tracking-[0.16em] text-gray-500">
-              {label}
-            </p>
-            <p className="mt-2 font-mono text-lg font-bold text-white">
-              {value}
-            </p>
-          </button>
-        ))}
-      </DashboardCard>
+      {visibleWidgets["saved-trade-logs"] ||
+      visibleWidgets["journal-library"] ? (
+        <div
+          className={
+            visibleWidgets["saved-trade-logs"] &&
+            visibleWidgets["journal-library"]
+              ? "grid items-start gap-4 lg:grid-cols-2"
+              : "grid items-start gap-4"
+          }
+        >
+          {visibleWidgets["saved-trade-logs"] ? (
+            <DashboardCard className="p-5">
+              <DashboardWidgetHeader
+                label="Trade Log"
+                title="Saved Trade Logs"
+                onOpen={() => onSelectSection("journal")}
+              />
+
+              <div className="space-y-3">
+                {tradeLogPreview.length === 0 ? (
+                  <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
+                    No saved trade logs yet.
+                  </div>
+                ) : (
+                  tradeLogPreview.slice(0, 4).map((log) => (
+                    <button
+                      key={log.id}
+                      type="button"
+                      onClick={() => onSelectSection("journal")}
+                      className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
+                    >
+                      <p className="truncate font-mono text-sm font-bold text-white">
+                        {log.logName}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Initial: {formatMoney(log.initialBalance, log.accountCurrency)}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </DashboardCard>
+          ) : null}
+
+          {visibleWidgets["journal-library"] ? (
+            <DashboardCard className="p-5">
+              <DashboardWidgetHeader
+                label="Journal"
+                title="Recent Journal Entries"
+                onOpen={() => onSelectSection("journal")}
+              />
+
+              <div className="space-y-3">
+                {journalPreview.length === 0 ? (
+                  <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
+                    No saved analysis yet.
+                  </div>
+                ) : (
+                  journalPreview.slice(0, 4).map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => onSelectSection("journal")}
+                      className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
+                    >
+                      <p className="truncate font-mono text-sm font-bold text-white">
+                        {entry.title}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {entry.instrument} • {formatDashboardDate(entry.createdAt)}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </DashboardCard>
+          ) : null}
+        </div>
+      ) : null}
+
+      {visibleWidgetCount === 0 ? (
+        <DashboardCard className="p-8 text-center">
+          <EyeOff className="mx-auto h-8 w-8 text-gray-600" />
+          <p className="mt-4 font-mono text-sm font-bold text-white">
+            Your dashboard is empty
+          </p>
+          <p className="mt-2 text-sm text-gray-500">
+            Open Edit dashboard and select the widgets you want to see.
+          </p>
+        </DashboardCard>
+      ) : null}
+
+      {isEditingDashboard ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto border border-gray-700 bg-[#111111] shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-gray-800 bg-[#111111] p-5">
+              <div>
+                <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-yellow-400">
+                  Dashboard settings
+                </p>
+                <h2 className="mt-1 font-mono text-xl font-black text-white">
+                  Choose what you want to see
+                </h2>
+                <p className="mt-2 text-sm text-gray-400">
+                  Hidden widgets stay available in their main EdgeVault workspaces.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsEditingDashboard(false)}
+                aria-label="Close dashboard settings"
+                className="border border-gray-800 p-2 text-gray-400 transition hover:border-red-400 hover:text-red-300"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid gap-3 p-5 sm:grid-cols-2">
+              {dashboardWidgetOptions.map((widget) => {
+                const isVisible = draftVisibleWidgets[widget.id];
+
+                return (
+                  <button
+                    key={widget.id}
+                    type="button"
+                    onClick={() => toggleDraftWidget(widget.id)}
+                    className={
+                      isVisible
+                        ? "flex items-start gap-3 border border-cyan-400/40 bg-cyan-400/10 p-4 text-left"
+                        : "flex items-start gap-3 border border-gray-800 bg-black p-4 text-left transition hover:border-gray-700"
+                    }
+                  >
+                    <span
+                      className={
+                        isVisible
+                          ? "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center bg-cyan-400 text-black"
+                          : "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center border border-gray-700 text-gray-500"
+                      }
+                    >
+                      {isVisible ? (
+                        <Check className="h-4 w-4" />
+                      ) : (
+                        <EyeOff className="h-4 w-4" />
+                      )}
+                    </span>
+
+                    <span>
+                      <span className="block font-mono text-sm font-bold text-white">
+                        {widget.label}
+                      </span>
+                      <span className="mt-1 block text-xs leading-relaxed text-gray-500">
+                        {widget.description}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="sticky bottom-0 flex flex-col gap-3 border-t border-gray-800 bg-[#111111] p-5 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                type="button"
+                onClick={resetDashboardPreferences}
+                className="inline-flex items-center justify-center gap-2 border border-gray-800 px-4 py-3 font-mono text-xs font-bold text-gray-300 transition hover:border-gray-600 hover:text-white"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reset default
+              </button>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingDashboard(false)}
+                  className="border border-gray-800 px-4 py-3 font-mono text-xs font-bold text-gray-400 transition hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveDashboardPreferences}
+                  className="inline-flex items-center gap-2 bg-yellow-400 px-5 py-3 font-mono text-xs font-black text-black transition hover:bg-yellow-300"
+                >
+                  <Eye className="h-4 w-4" />
+                  Save dashboard
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1501,34 +1781,6 @@ function RightPanel({
         </div>
       </DashboardCard>
 
-      <DashboardCard className="p-5">
-        <h2 className="mb-4 font-mono text-sm font-bold uppercase tracking-[0.18em] text-white">
-          Market Snapshot
-        </h2>
-
-        <div className="space-y-4">
-          {marketSnapshot.map((item) => (
-            <div
-              key={item.symbol}
-              className="flex items-center justify-between text-sm"
-            >
-              <span className="font-mono font-semibold text-gray-400">
-                {item.symbol}
-              </span>
-              <span className="text-white">{item.value}</span>
-              <span
-                className={
-                  item.positive
-                    ? "font-mono font-semibold text-green-400"
-                    : "font-mono font-semibold text-red-400"
-                }
-              >
-                {item.change}
-              </span>
-            </div>
-          ))}
-        </div>
-      </DashboardCard>
 
       <DashboardCard className="p-5">
         <div className="flex items-start gap-3">
@@ -1649,6 +1901,7 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-black text-white">
+      <DashboardPreferencesProvider>
       <div className="min-h-screen lg:flex">
         <aside className="hidden w-60 shrink-0 border-r border-gray-800 bg-black px-4 py-4 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:overflow-y-auto">
           <Link href="/dashboard" className="mb-6 flex items-center px-0">
@@ -1807,6 +2060,7 @@ export default function DashboardPage() {
           </div>
         </section>
       </div>
+      </DashboardPreferencesProvider>
     </main>
   );
 }

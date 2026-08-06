@@ -8,6 +8,7 @@ import {
   Grid2X2,
 } from "lucide-react";
 import CurrencyStrengthMeter from "@/components/technicals/CurrencyStrengthMeter";
+import CurrencyMomentumMeter from "@/components/technicals/CurrencyMomentumMeter";
 
 export type TechnicalsTab =
   | "hub"
@@ -33,7 +34,7 @@ const technicalTabs = [
     value: "currency-momentum" as TechnicalsTab,
     icon: Activity,
     description:
-      "Monitor immediate short-term momentum across the major currencies.",
+      "Rank the USD pairs that currently align best with your DXY direction.",
   },
 ];
 
@@ -61,8 +62,8 @@ export default function TechnicalsWorkspace({
           </h1>
 
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400 sm:text-base">
-            Measure relative currency strength and short-term currency momentum
-            across multiple market timeframes.
+            Measure relative currency strength and compare the current movement
+            of DXY with the major USD pairs across selectable timeframes.
           </p>
         </div>
 
@@ -137,12 +138,13 @@ export default function TechnicalsWorkspace({
             </div>
 
             <h2 className="mt-5 text-xl font-bold text-white">
-              Currency Momentum Meter
+              Currency Momentum Tracker
             </h2>
 
             <p className="mt-3 text-sm leading-relaxed text-slate-400">
-              Track faster short-term currency movement for scalping and
-              immediate market-momentum analysis.
+              Select your DXY Buy or Sell direction and rank the seven major
+              USD pairs by their current point movement, percentage movement
+              and normalized Momentum Points.
             </p>
 
             <button
@@ -185,34 +187,29 @@ export default function TechnicalsWorkspace({
       ) : null}
 
       {activeTab === "currency-momentum" ? (
-        <section className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-5 sm:p-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-400">
-              Future Technical Tool
-            </p>
+        <section className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-4 sm:p-6">
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-400">
+                Technical Tool
+              </p>
 
-            <h2 className="mt-2 text-2xl font-bold text-white">
-              Currency Momentum Meter
-            </h2>
+              <h2 className="mt-2 text-2xl font-bold text-white">
+                Currency Momentum Tracker
+              </h2>
 
-            <p className="mt-2 text-sm text-slate-400">
-              This workspace will be developed after the Currency Strength
-              Meter is completed.
-            </p>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">
+                You provide the DXY direction. EdgeVault only compares current
+                market movement and ranks which USD pairs are responding best.
+              </p>
+            </div>
+
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-500/15 text-cyan-300">
+              <Activity className="h-6 w-6" />
+            </div>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-8 text-center">
-            <Activity className="mx-auto h-9 w-9 text-slate-500" />
-
-            <p className="mt-4 font-semibold text-white">
-              Currency Momentum is reserved
-            </p>
-
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
-              It will later provide a faster short-term ranking using the same
-              eight currencies and related display styles.
-            </p>
-          </div>
+          <CurrencyMomentumMeter />
         </section>
       ) : null}
     </div>

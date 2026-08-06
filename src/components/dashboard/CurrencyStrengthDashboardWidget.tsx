@@ -9,14 +9,21 @@ import {
 } from "react";
 import {
   AlertCircle,
-  ArrowDownUp,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
   BarChart3,
   Clock3,
   ExternalLink,
+  Gauge,
+  Hash,
+  List,
   LoaderCircle,
+  Percent,
   RefreshCw,
 } from "lucide-react";
+import CompactCycleSelect from "@/components/dashboard/CompactCycleSelect";
 import { supabase } from "@/lib/supabase";
+import { useDashboardPreferences } from "@/components/dashboard/DashboardPreferencesProvider";
 
 type CurrencyStrengthTimeframe =
   | "M1"
@@ -28,12 +35,11 @@ type CurrencyStrengthTimeframe =
   | "D1"
   | "W1";
 
-type DashboardTimeframePreference =
-  | "AUTO"
-  | CurrencyStrengthTimeframe;
+type DashboardTimeframePreference = CurrencyStrengthTimeframe;
 
 type SortOrder = "strongest" | "weakest";
 type OutputMode = "percentage" | "raw";
+type ViewMode = "analog" | "digital";
 
 type CurrencyReading = {
   currency: string;
@@ -128,6 +134,64 @@ const timeframes: CurrencyStrengthTimeframe[] = [
   "W1",
 ];
 
+const timeframeOptions = timeframes.map((timeframe) => ({
+  value: timeframe,
+  label: timeframe,
+  shortLabel: timeframe,
+  description: `Timeframe: ${timeframe}`,
+}));
+
+const viewOptions = [
+  {
+    value: "analog" as const,
+    label: "Analog display",
+    shortLabel: "",
+    description: "Analog strength display",
+    icon: <Gauge className="h-4 w-4" />,
+  },
+  {
+    value: "digital" as const,
+    label: "Digital display",
+    shortLabel: "",
+    description: "Digital strength display",
+    icon: <List className="h-4 w-4" />,
+  },
+];
+
+const sortOptions = [
+  {
+    value: "strongest" as const,
+    label: "Strongest first",
+    shortLabel: "",
+    description: "Sort strongest to weakest",
+    icon: <ArrowDownWideNarrow className="h-4 w-4" />,
+  },
+  {
+    value: "weakest" as const,
+    label: "Weakest first",
+    shortLabel: "",
+    description: "Sort weakest to strongest",
+    icon: <ArrowUpNarrowWide className="h-4 w-4" />,
+  },
+];
+
+const outputOptions = [
+  {
+    value: "percentage" as const,
+    label: "Percentage values",
+    shortLabel: "",
+    description: "Show percentage values",
+    icon: <Percent className="h-4 w-4" />,
+  },
+  {
+    value: "raw" as const,
+    label: "Raw values",
+    shortLabel: "",
+    description: "Show raw strength values",
+    icon: <Hash className="h-4 w-4" />,
+  },
+];
+
 const emptySnapshots: SnapshotMap = {
   M1: null,
   M5: null,
@@ -163,17 +227,13 @@ function formatDateTime(value: string | null | undefined) {
   });
 }
 
-function getPreferenceKey(userId: string, setting: string) {
-  return `edgevault_currency_strength_dashboard_${setting}_${userId}`;
+function getPreferenceKey(owner: string, setting: string) {
+  return `edgevault_currency_strength_dashboard_${setting}_${owner}`;
 }
 
 function parseTimeframePreference(
   value: string | null,
 ): DashboardTimeframePreference {
-  if (value === "AUTO") {
-    return "AUTO";
-  }
-
   if (
     value &&
     timeframes.includes(value as CurrencyStrengthTimeframe)
@@ -181,7 +241,7 @@ function parseTimeframePreference(
     return value as CurrencyStrengthTimeframe;
   }
 
-  return "AUTO";
+  return "H1";
 }
 
 function parseSortOrder(value: string | null): SortOrder {
@@ -192,20 +252,25 @@ function parseOutputMode(value: string | null): OutputMode {
   return value === "raw" ? "raw" : "percentage";
 }
 
+function parseViewMode(value: string | null): ViewMode {
+  return value === "digital" ? "digital" : "analog";
+}
+
 export default function CurrencyStrengthDashboardWidget({
   onOpen,
 }: {
   onOpen: () => void;
 }) {
+  const { preferences, updateSection: updatePreferenceSection } =
+    useDashboardPreferences();
+  const timeframePreference =
+    preferences.currencyStrength.timeframe as DashboardTimeframePreference;
+  const sortOrder = preferences.currencyStrength.sort as SortOrder;
+  const outputMode = preferences.currencyStrength.output as OutputMode;
+  const viewMode = preferences.currencyStrength.view as ViewMode;
+
   const [snapshots, setSnapshots] =
     useState<SnapshotMap>(emptySnapshots);
-  const [timeframePreference, setTimeframePreference] =
-    useState<DashboardTimeframePreference>("AUTO");
-  const [sortOrder, setSortOrder] =
-    useState<SortOrder>("strongest");
-  const [outputMode, setOutputMode] =
-    useState<OutputMode>("percentage");
-  const [userId, setUserId] = useState("");
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isLoadingSnapshots, setIsLoadingSnapshots] =
     useState(true);
@@ -258,6 +323,7 @@ export default function CurrencyStrengthDashboardWidget({
       }
 
       setSnapshots(nextSnapshots);
+      setErrorMessage("");
     } catch (error) {
       console.error(
         "LOAD DASHBOARD CURRENCY STRENGTH SNAPSHOTS ERROR:",
@@ -286,10 +352,8 @@ export default function CurrencyStrengthDashboardWidget({
 
       const session = data.session;
       const accessToken = session?.access_token ?? null;
-      const sessionUserId = session?.user.id ?? "";
 
       setIsSignedIn(Boolean(accessToken));
-      setUserId(sessionUserId);
 
       if (!accessToken) {
         setActiveJob(null);
@@ -358,12 +422,10 @@ export default function CurrencyStrengthDashboardWidget({
             lastLoadedSnapshotIdRef.current)
       ) {
         await loadSnapshots();
-        lastLoadedSnapshotIdRef.current =
-          completedSnapshotId;
+        lastLoadedSnapshotIdRef.current = completedSnapshotId;
       }
 
-      previousActiveJobRef.current =
-        nextActiveJob?.id ?? null;
+      previousActiveJobRef.current = nextActiveJob?.id ?? null;
     } catch (error) {
       console.error(
         "LOAD DASHBOARD CURRENCY STRENGTH STATUS ERROR:",
@@ -386,34 +448,6 @@ export default function CurrencyStrengthDashboardWidget({
   }, [loadRefreshStatus, loadSnapshots]);
 
   useEffect(() => {
-    if (!userId) {
-      return;
-    }
-
-    setTimeframePreference(
-      parseTimeframePreference(
-        window.localStorage.getItem(
-          getPreferenceKey(userId, "timeframe"),
-        ),
-      ),
-    );
-    setSortOrder(
-      parseSortOrder(
-        window.localStorage.getItem(
-          getPreferenceKey(userId, "sort"),
-        ),
-      ),
-    );
-    setOutputMode(
-      parseOutputMode(
-        window.localStorage.getItem(
-          getPreferenceKey(userId, "output"),
-        ),
-      ),
-    );
-  }, [userId]);
-
-  useEffect(() => {
     const interval = window.setInterval(
       () => void loadRefreshStatus(),
       activeJob ? 5_000 : 20_000,
@@ -422,33 +456,7 @@ export default function CurrencyStrengthDashboardWidget({
     return () => window.clearInterval(interval);
   }, [activeJob, loadRefreshStatus]);
 
-  const latestRefreshedTimeframe = useMemo(() => {
-    const availableSnapshots = timeframes
-      .map((timeframe) => snapshots[timeframe])
-      .filter(
-        (
-          snapshot,
-        ): snapshot is CurrencyStrengthSnapshot =>
-          Boolean(snapshot),
-      );
-
-    if (availableSnapshots.length === 0) {
-      return "H1" as CurrencyStrengthTimeframe;
-    }
-
-    return availableSnapshots.reduce((latest, current) =>
-      Date.parse(current.calculated_at) >
-      Date.parse(latest.calculated_at)
-        ? current
-        : latest,
-    ).timeframe;
-  }, [snapshots]);
-
-  const displayedTimeframe =
-    timeframePreference === "AUTO"
-      ? latestRefreshedTimeframe
-      : timeframePreference;
-
+  const displayedTimeframe = timeframePreference;
   const displayedSnapshot = snapshots[displayedTimeframe];
 
   const sortedReadings = useMemo(() => {
@@ -493,45 +501,16 @@ export default function CurrencyStrengthDashboardWidget({
     ? clamp(activeJob.completedPairCount, 0, 28)
     : 0;
 
-  function saveTimeframePreference(
-    preference: DashboardTimeframePreference,
+  function savePreference<
+    Setting extends keyof typeof preferences.currencyStrength,
+  >(
+    setting: Setting,
+    value: (typeof preferences.currencyStrength)[Setting],
   ) {
-    setTimeframePreference(preference);
-
-    if (userId) {
-      window.localStorage.setItem(
-        getPreferenceKey(userId, "timeframe"),
-        preference,
-      );
-    }
-  }
-
-  function toggleSortOrder() {
-    const nextOrder =
-      sortOrder === "strongest" ? "weakest" : "strongest";
-
-    setSortOrder(nextOrder);
-
-    if (userId) {
-      window.localStorage.setItem(
-        getPreferenceKey(userId, "sort"),
-        nextOrder,
-      );
-    }
-  }
-
-  function toggleOutputMode() {
-    const nextMode =
-      outputMode === "percentage" ? "raw" : "percentage";
-
-    setOutputMode(nextMode);
-
-    if (userId) {
-      window.localStorage.setItem(
-        getPreferenceKey(userId, "output"),
-        nextMode,
-      );
-    }
+    void updatePreferenceSection("currencyStrength", {
+      ...preferences.currencyStrength,
+      [setting]: value,
+    });
   }
 
   async function startRefresh() {
@@ -580,14 +559,10 @@ export default function CurrencyStrengthDashboardWidget({
         );
       }
 
-      setActiveJob(
-        payload.activeJob ?? payload.job ?? activeJob,
-      );
+      setActiveJob(payload.activeJob ?? payload.job ?? activeJob);
       setRequestedJob(payload.job ?? null);
       setUsage(payload.usage ?? usage);
-      setProviderUsage(
-        payload.providerUsage ?? providerUsage,
-      );
+      setProviderUsage(payload.providerUsage ?? providerUsage);
 
       if (!response.ok || !payload.ok) {
         throw new Error(
@@ -609,7 +584,7 @@ export default function CurrencyStrengthDashboardWidget({
     }
   }
 
-  function getBarWidth(reading: CurrencyReading) {
+  function getReadingPosition(reading: CurrencyReading) {
     if (outputMode === "percentage") {
       return clamp(reading.percentage, 0, 100);
     }
@@ -622,7 +597,7 @@ export default function CurrencyStrengthDashboardWidget({
 
     return clamp(
       ((reading.rawScore - rawRange.minimum) / range) * 100,
-      4,
+      0,
       100,
     );
   }
@@ -638,269 +613,239 @@ export default function CurrencyStrengthDashboardWidget({
   const isBusy = Boolean(activeJob) || isStartingRefresh;
 
   return (
-    <section className="border border-gray-800 bg-[#111111] p-5 shadow-[0_0_35px_rgba(34,211,238,0.04)]">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">
+    <section className="flex h-full flex-col border border-gray-800 bg-[#111111] p-4 shadow-[0_0_35px_rgba(34,211,238,0.04)]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-cyan-400">
             Technicals
           </p>
-          <div className="mt-1 flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-yellow-400" />
-            <h2 className="font-mono text-lg font-bold text-white">
+          <div className="mt-0.5 flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 shrink-0 text-yellow-400" />
+            <h2 className="truncate font-mono text-base font-bold text-white">
               Currency Strength
             </h2>
           </div>
-          <p className="mt-2 text-sm text-gray-400">
-            The dashboard uses the same saved result and refresh job as the full meter.
-          </p>
         </div>
 
         <button
           type="button"
           onClick={onOpen}
-          className="inline-flex w-fit items-center gap-2 border border-gray-800 px-3 py-2 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
+          title="Open the full Currency Strength meter"
+          aria-label="Open the full Currency Strength meter"
+          className="flex h-8 w-8 shrink-0 items-center justify-center border border-gray-800 text-gray-400 transition hover:border-yellow-400 hover:text-yellow-300"
         >
-          Open meter
           <ExternalLink className="h-3.5 w-3.5" />
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-        <label className="min-w-0">
-          <span className="mb-1 block font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500">
-            Dashboard timeframe
-          </span>
-          <select
-            value={timeframePreference}
-            onChange={(event) =>
-              saveTimeframePreference(
-                event.target.value as DashboardTimeframePreference,
-              )
-            }
-            className="w-full border border-gray-800 bg-black px-3 py-2.5 font-mono text-xs font-bold text-white outline-none transition focus:border-yellow-400"
-          >
-            <option value="AUTO">
-              Automatic — latest refreshed timeframe
-            </option>
-            {timeframes.map((timeframe) => (
-              <option key={timeframe} value={timeframe}>
-                {timeframe}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="mt-3 flex items-center gap-1.5 overflow-x-auto pb-1">
+        <CompactCycleSelect<DashboardTimeframePreference>
+          label="Timeframe"
+          value={timeframePreference}
+          options={timeframeOptions}
+          onChange={(value) => savePreference("timeframe", value)}
+          accent="yellow"
+          compact
+          hideLabel
+          className="w-[102px] shrink-0"
+        />
 
-        <button
-          type="button"
-          onClick={toggleSortOrder}
-          className="mt-auto inline-flex items-center justify-center gap-2 border border-gray-800 px-3 py-2.5 font-mono text-xs font-bold text-gray-300 transition hover:border-cyan-400 hover:text-cyan-300"
-        >
-          <ArrowDownUp className="h-3.5 w-3.5" />
-          {sortOrder === "strongest"
-            ? "Strongest first"
-            : "Weakest first"}
-        </button>
+        <CompactCycleSelect<ViewMode>
+          label="Display"
+          value={viewMode}
+          options={viewOptions}
+          onChange={(value) => savePreference("view", value)}
+          accent="cyan"
+          compact
+          hideLabel
+          className="w-[82px] shrink-0"
+        />
 
-        <button
-          type="button"
-          onClick={toggleOutputMode}
-          title="Switch between % and raw score"
-          className="mt-auto border border-gray-800 px-3 py-2.5 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
-        >
-          {outputMode === "percentage" ? "%" : "Raw"}
-        </button>
+        <CompactCycleSelect<SortOrder>
+          label="Order"
+          value={sortOrder}
+          options={sortOptions}
+          onChange={(value) => savePreference("sort", value)}
+          accent="cyan"
+          compact
+          hideLabel
+          className="w-[82px] shrink-0"
+        />
+
+        <CompactCycleSelect<OutputMode>
+          label="Values"
+          value={outputMode}
+          options={outputOptions}
+          onChange={(value) => savePreference("output", value)}
+          accent="yellow"
+          compact
+          hideLabel
+          className="w-[82px] shrink-0"
+        />
       </div>
 
-      <div className="mt-4 flex flex-col gap-3 border border-gray-800 bg-black p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="bg-yellow-400 px-2.5 py-1 font-mono text-xs font-black text-black">
-              {displayedTimeframe}
-            </span>
-            {timeframePreference === "AUTO" ? (
-              <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-cyan-300">
-                Latest refreshed
-              </span>
-            ) : (
-              <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-gray-500">
-                Custom default
-              </span>
-            )}
-          </div>
+      <div className="mt-2 flex min-h-8 items-center justify-between gap-3 border-y border-gray-800 py-1.5">
+        <p className="flex min-w-0 items-center gap-1.5 truncate text-[10px] text-gray-500">
+          <Clock3 className="h-3.5 w-3.5 shrink-0 text-violet-300" />
+          {displayedSnapshot
+            ? formatDateTime(displayedSnapshot.calculated_at)
+            : `No saved ${displayedTimeframe} result`}
+        </p>
 
-          {displayedSnapshot ? (
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-              <span className="inline-flex items-center gap-1.5">
-                <Clock3 className="h-3.5 w-3.5 text-violet-300" />
-                Completed candle: {formatDateTime(displayedSnapshot.latest_completed_candle_at)}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <RefreshCw className="h-3.5 w-3.5 text-emerald-300" />
-                Refreshed: {formatDateTime(displayedSnapshot.calculated_at)}
-              </span>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="border border-gray-800 px-3 py-2 font-mono text-xs text-gray-400">
-            {isLoadingStatus
-              ? "Allowance loading…"
-              : usage
-                ? `${usage.remainingRefreshes} of ${usage.limit} remaining`
-                : isSignedIn
-                  ? "Allowance unavailable"
-                  : "Sign in required"}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void startRefresh()}
-            disabled={
-              isBusy ||
-              !isSignedIn ||
-              !usage ||
-              usage.remainingRefreshes <= 0
-            }
-            className="inline-flex items-center justify-center gap-2 bg-cyan-400 px-4 py-2 font-mono text-xs font-black text-black transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-500"
-          >
-            {isStartingRefresh ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            Refresh {displayedTimeframe}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void startRefresh()}
+          disabled={
+            isBusy ||
+            !isSignedIn ||
+            !usage ||
+            usage.remainingRefreshes <= 0
+          }
+          title={
+            usage
+              ? `Refresh ${displayedTimeframe}. ${usage.remainingRefreshes} of ${usage.limit} refreshes remain.`
+              : `Refresh ${displayedTimeframe}`
+          }
+          aria-label={`Refresh ${displayedTimeframe} Currency Strength`}
+          className="flex h-7 w-7 shrink-0 items-center justify-center bg-cyan-400 text-black transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-600"
+        >
+          {isStartingRefresh ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+        </button>
       </div>
 
       {activeJob ? (
         <div
           className={
             isCurrentUsersJob
-              ? "mt-3 border border-cyan-400/30 bg-cyan-400/10 p-3"
-              : "mt-3 border border-yellow-400/30 bg-yellow-400/10 p-3"
+              ? "mt-2 border border-cyan-400/30 bg-cyan-400/10 p-2"
+              : "mt-2 border border-yellow-400/30 bg-yellow-400/10 p-2"
           }
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-start gap-2">
-              <LoaderCircle
-                className={
-                  isCurrentUsersJob
-                    ? "mt-0.5 h-4 w-4 shrink-0 animate-spin text-cyan-300"
-                    : "mt-0.5 h-4 w-4 shrink-0 animate-spin text-yellow-300"
-                }
-              />
-              <div>
-                <p className="font-mono text-xs font-bold text-white">
-                  {isCurrentUsersJob
-                    ? `Your ${activeJob.timeframe} refresh is continuing in the background`
-                    : `Another ${activeJob.timeframe} refresh is currently active`}
-                </p>
-                <p className="mt-1 text-xs text-gray-400">
-                  {activeProgress} of 28 pairs collected. A second refresh will not start and no allowance will be used.
-                </p>
-              </div>
-            </div>
-
-            <span className="font-mono text-xs font-bold text-white">
-              {activeProgress}/28
-            </span>
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-mono text-[10px] font-bold text-white">
+              {activeJob.timeframe} · {activeProgress}/28 pairs
+            </p>
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin text-cyan-300" />
           </div>
-
-          <div className="mt-3 h-2 overflow-hidden bg-gray-900">
+          <div className="mt-1.5 h-1 overflow-hidden bg-gray-900">
             <div
-              className={
-                isCurrentUsersJob
-                  ? "h-full bg-cyan-400 transition-all duration-500"
-                  : "h-full bg-yellow-400 transition-all duration-500"
-              }
-              style={{
-                width: `${(activeProgress / 28) * 100}%`,
-              }}
+              className="h-full bg-cyan-400 transition-all duration-500"
+              style={{ width: `${(activeProgress / 28) * 100}%` }}
             />
           </div>
         </div>
       ) : null}
 
       {message ? (
-        <p className="mt-3 border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-200">
+        <p className="mt-2 border border-emerald-400/30 bg-emerald-400/10 px-2 py-1.5 text-[10px] text-emerald-200">
           {message}
         </p>
       ) : null}
 
       {errorMessage ? (
-        <div className="mt-3 flex items-start gap-2 border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-200">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="mt-2 flex items-start gap-2 border border-red-400/30 bg-red-400/10 px-2 py-1.5 text-[10px] text-red-200">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{errorMessage}</span>
         </div>
       ) : null}
 
-      <div className="mt-4">
+      <div className="mt-2 flex flex-1 flex-col">
         {isLoadingSnapshots ? (
-          <div className="flex min-h-[270px] items-center justify-center border border-gray-800 bg-black">
-            <div className="text-center">
-              <LoaderCircle className="mx-auto h-6 w-6 animate-spin text-cyan-300" />
-              <p className="mt-3 font-mono text-xs text-gray-500">
-                Loading latest saved Currency Strength…
-              </p>
-            </div>
+          <div className="flex min-h-[170px] flex-1 items-center justify-center border border-gray-800 bg-black">
+            <LoaderCircle className="h-5 w-5 animate-spin text-cyan-300" />
           </div>
         ) : !displayedSnapshot ? (
-          <div className="flex min-h-[270px] items-center justify-center border border-gray-800 bg-black p-6 text-center">
+          <div className="flex min-h-[170px] flex-1 items-center justify-center border border-gray-800 bg-black p-4 text-center">
             <div>
-              <BarChart3 className="mx-auto h-8 w-8 text-gray-700" />
-              <p className="mt-3 font-mono text-sm font-bold text-white">
-                No saved {displayedTimeframe} result yet
+              <BarChart3 className="mx-auto h-6 w-6 text-gray-700" />
+              <p className="mt-2 font-mono text-xs font-bold text-white">
+                No saved {displayedTimeframe} result
               </p>
-              <p className="mt-2 text-sm text-gray-500">
-                Refresh this timeframe once to create its first saved result.
+              <p className="mt-1 text-[10px] text-gray-600">
+                Use the refresh icon above.
               </p>
             </div>
           </div>
+        ) : viewMode === "analog" ? (
+          <div className="grid flex-1 grid-cols-4 gap-1.5 border border-gray-800 bg-black p-2">
+            {sortedReadings.map((reading, index) => {
+              const position = getReadingPosition(reading);
+
+              return (
+                <div
+                  key={reading.currency}
+                  className="min-w-0 border border-gray-800 bg-[#080808] p-2"
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="truncate font-mono text-[10px] font-black text-white">
+                      {index + 1}. {reading.currency}
+                    </span>
+                    <span className="truncate font-mono text-[9px] font-bold text-yellow-300">
+                      {formatReading(reading)}
+                    </span>
+                  </div>
+
+                  <div className="relative mt-2 h-1.5 bg-gray-900">
+                    <div className="absolute inset-y-0 left-1/2 w-px bg-gray-700" />
+                    <div
+                      className="absolute top-1/2 h-3 w-1 -translate-x-1/2 -translate-y-1/2 bg-cyan-300"
+                      style={{ left: `${position}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          <div className="space-y-2.5 border border-gray-800 bg-black p-4">
+          <div className="grid flex-1 grid-cols-4 gap-1.5 border border-gray-800 bg-black p-2">
             {sortedReadings.map((reading, index) => (
               <div
                 key={reading.currency}
-                className="grid grid-cols-[30px_42px_minmax(0,1fr)_72px] items-center gap-2"
+                className="min-w-0 border border-gray-800 bg-[#080808] p-2"
               >
-                <span className="font-mono text-xs text-gray-600">
-                  {index + 1}
-                </span>
-                <span className="font-mono text-sm font-black text-white">
-                  {reading.currency}
-                </span>
-                <div className="h-2.5 overflow-hidden bg-gray-900">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-mono text-[9px] text-gray-600">
+                    {index + 1}
+                  </span>
+                  <span className="truncate font-mono text-[11px] font-black text-white">
+                    {reading.currency}
+                  </span>
+                  <span className="truncate text-right font-mono text-[9px] font-bold text-yellow-300">
+                    {formatReading(reading)}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1 overflow-hidden bg-gray-900">
                   <div
-                    className="h-full bg-cyan-400 transition-all duration-500"
-                    style={{
-                      width: `${getBarWidth(reading)}%`,
-                      opacity: clamp(
-                        0.45 +
-                          (outputMode === "percentage"
-                            ? reading.percentage / 180
-                            : getBarWidth(reading) / 180),
-                        0.45,
-                        1,
-                      ),
-                    }}
+                    className="h-full bg-cyan-400"
+                    style={{ width: `${getReadingPosition(reading)}%` }}
                   />
                 </div>
-                <span className="text-right font-mono text-xs font-bold text-yellow-300">
-                  {formatReading(reading)}
-                </span>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {providerUsage ? (
-        <p className="mt-3 text-right font-mono text-[11px] text-gray-600">
-          Tracked Twelve Data credits: {providerUsage.creditsRemaining} of {providerUsage.limit} remaining
-        </p>
-      ) : null}
+      <div className="mt-2 flex items-center justify-between gap-3 font-mono text-[9px] text-gray-600">
+        <span>
+          {isLoadingStatus
+            ? "Allowance loading…"
+            : usage
+              ? `${usage.remainingRefreshes}/${usage.limit} refreshes`
+              : isSignedIn
+                ? "Allowance unavailable"
+                : "Sign in to refresh"}
+        </span>
+        {providerUsage ? (
+          <span>
+            {providerUsage.creditsRemaining}/{providerUsage.limit} credits
+          </span>
+        ) : null}
+      </div>
     </section>
   );
 }
