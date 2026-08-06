@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Activity,
   AlertTriangle,
@@ -21,6 +27,10 @@ type MarketSnapshotItem = {
   datetime: string | null;
   marketOpen: boolean | null;
   estimated: boolean;
+  delayed?: boolean;
+  delayMinutes?: number | null;
+  stale?: boolean;
+  quoteAgeMinutes?: number | null;
   source: string;
   error: string | null;
 };
@@ -37,20 +47,16 @@ type MarketSnapshotResponse = {
   error?: string;
 };
 
-const snapshotStorageKey = "edgevault_market_snapshot_v2";
-const sharedRequestCooldownKey = "edgevault_twelve_data_last_request_v1";
-const REQUEST_COOLDOWN_MS = 60_000;
+const SNAPSHOT_STORAGE_KEY =
+  "edgevault_market_snapshot_biquote_v1";
+const DEFAULT_REFRESH_MS = 60_000;
 
 function formatPrice(symbol: string, value: number | null) {
   if (value === null || !Number.isFinite(value)) {
     return "—";
   }
 
-  if (symbol === "DXY") {
-    return value.toFixed(3);
-  }
-
-  if (symbol.endsWith("JPY")) {
+  if (symbol === "DXY" || symbol.endsWith("JPY")) {
     return value.toFixed(3);
   }
 
@@ -66,15 +72,15 @@ function formatPercent(value: number | null) {
   return `${sign}${value.toFixed(2)}%`;
 }
 
-function formatUpdatedTime(value?: string | null) {
+function formatTime(value?: string | null) {
   if (!value) {
-    return "No saved snapshot";
+    return "Waiting for current quote";
   }
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "Latest saved quote";
+    return "Latest available quote";
   }
 
   return date.toLocaleTimeString([], {
@@ -84,15 +90,54 @@ function formatUpdatedTime(value?: string | null) {
   });
 }
 
+function formatAge(minutes?: number | null) {
+  if (
+    typeof minutes !== "number" ||
+    !Number.isFinite(minutes) ||
+    minutes < 0
+  ) {
+    return "unknown";
+  }
+
+  if (minutes < 60) {
+    return `${Math.floor(minutes)} min`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = Math.floor(minutes % 60);
+
+  return remainingMinutes === 0
+    ? `${hours}h`
+    : `${hours}h ${remainingMinutes}m`;
+}
+
+function getStatusTooltip(item: MarketSnapshotItem) {
+  const quoteAge = formatAge(item.quoteAgeMinutes);
+
+  if (item.stale) {
+    return `BiQuote returned a stale ${item.label} quote. Current quote age: ${quoteAge}.`;
+  }
+
+  if (item.estimated) {
+    return `Calculated from live EURUSD, USDJPY, GBPUSD, USDCAD, USDSEK and USDCHF midpoint prices. Oldest component age: ${quoteAge}.`;
+  }
+
+  return `BiQuote MT5 midpoint. Current quote age: ${quoteAge}.`;
+}
+
 function readStoredSnapshot(): MarketSnapshotResponse | null {
   try {
-    const stored = window.localStorage.getItem(snapshotStorageKey);
+    const stored = window.localStorage.getItem(
+      SNAPSHOT_STORAGE_KEY,
+    );
 
     if (!stored) {
       return null;
     }
 
-    const parsed = JSON.parse(stored) as MarketSnapshotResponse;
+    const parsed = JSON.parse(
+      stored,
+    ) as MarketSnapshotResponse;
 
     if (parsed.ok === false || !Array.isArray(parsed.items)) {
       return null;
@@ -100,118 +145,136 @@ function readStoredSnapshot(): MarketSnapshotResponse | null {
 
     return parsed;
   } catch (error) {
-    console.error("READ MARKET SNAPSHOT ERROR:", error);
+    console.error("READ BIQUOTE SNAPSHOT ERROR:", error);
     return null;
   }
 }
 
 function saveStoredSnapshot(payload: MarketSnapshotResponse) {
   try {
-    window.localStorage.setItem(snapshotStorageKey, JSON.stringify(payload));
+    window.localStorage.setItem(
+      SNAPSHOT_STORAGE_KEY,
+      JSON.stringify(payload),
+    );
   } catch (error) {
-    console.error("SAVE MARKET SNAPSHOT ERROR:", error);
-  }
-}
-
-function getCooldownSeconds() {
-  try {
-    const stored = Number(
-      window.localStorage.getItem(sharedRequestCooldownKey),
-    );
-
-    if (!Number.isFinite(stored) || stored <= 0) {
-      return 0;
-    }
-
-    return Math.max(
-      0,
-      Math.ceil((stored + REQUEST_COOLDOWN_MS - Date.now()) / 1000),
-    );
-  } catch {
-    return 0;
+    console.error("SAVE BIQUOTE SNAPSHOT ERROR:", error);
   }
 }
 
 export default function MarketSnapshotDashboardWidget() {
   const [items, setItems] = useState<MarketSnapshotItem[]>([]);
-  const [quoteTimestamp, setQuoteTimestamp] = useState<string | null>(null);
+  const [provider, setProvider] = useState("BiQuote MT5");
+  const [quoteTimestamp, setQuoteTimestamp] =
+    useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [message, setMessage] = useState("");
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const [hasLoadedStoredSnapshot, setHasLoadedStoredSnapshot] = useState(false);
+  const [hasLoadedStoredSnapshot, setHasLoadedStoredSnapshot] =
+    useState(false);
+
+  const requestInFlightRef = useRef(false);
+
+  const loadSnapshot = useCallback(async () => {
+    if (requestInFlightRef.current) {
+      return;
+    }
+
+    requestInFlightRef.current = true;
+    setIsRefreshing(true);
+
+    try {
+      const response = await fetch(
+        `/api/market-snapshot?t=${Date.now()}`,
+        {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache",
+          },
+        },
+      );
+
+      const result =
+        (await response.json()) as MarketSnapshotResponse;
+
+      if (!response.ok || result.ok === false) {
+        throw new Error(
+          result.error ||
+            "Could not load BiQuote market prices.",
+        );
+      }
+
+      const nextItems = Array.isArray(result.items)
+        ? result.items
+        : [];
+
+      saveStoredSnapshot(result);
+      setItems(nextItems);
+      setProvider(result.provider ?? "BiQuote MT5");
+      setQuoteTimestamp(
+        result.quoteTimestamp ?? result.updatedAt ?? null,
+      );
+      setMessage("");
+    } catch (error) {
+      console.error("LOAD BIQUOTE SNAPSHOT ERROR:", error);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not load BiQuote market prices.",
+      );
+    } finally {
+      requestInFlightRef.current = false;
+      setIsRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     const stored = readStoredSnapshot();
 
     if (stored) {
-      setItems(Array.isArray(stored.items) ? stored.items : []);
-      setQuoteTimestamp(stored.quoteTimestamp ?? stored.updatedAt ?? null);
+      setItems(
+        Array.isArray(stored.items) ? stored.items : [],
+      );
+      setProvider(stored.provider ?? "BiQuote MT5");
+      setQuoteTimestamp(
+        stored.quoteTimestamp ?? stored.updatedAt ?? null,
+      );
     }
 
     setHasLoadedStoredSnapshot(true);
-  }, []);
+    void loadSnapshot();
 
-  useEffect(() => {
-    const updateCooldown = () => setCooldownSeconds(getCooldownSeconds());
+    const timer = window.setInterval(() => {
+      void loadSnapshot();
+    }, DEFAULT_REFRESH_MS);
 
-    updateCooldown();
-    const timer = window.setInterval(updateCooldown, 1_000);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const loadSnapshot = useCallback(async () => {
-    if (isRefreshing || getCooldownSeconds() > 0) {
-      return;
-    }
-
-    window.localStorage.setItem(
-      sharedRequestCooldownKey,
-      String(Date.now()),
-    );
-    setCooldownSeconds(60);
-    setIsRefreshing(true);
-    setMessage("");
-
-    try {
-      const response = await fetch("/api/market-snapshot", {
-        cache: "no-store",
-      });
-      const result = (await response.json()) as MarketSnapshotResponse;
-
-      if (!response.ok || result.ok === false) {
-        throw new Error(
-          result.error || "Could not load the current market snapshot.",
-        );
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadSnapshot();
       }
+    };
 
-      saveStoredSnapshot(result);
-      setItems(Array.isArray(result.items) ? result.items : []);
-      setQuoteTimestamp(result.quoteTimestamp ?? result.updatedAt ?? null);
-    } catch (error) {
-      console.error("LOAD MARKET SNAPSHOT ERROR:", error);
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not load the current market snapshot.",
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange,
+    );
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange,
       );
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [isRefreshing]);
+    };
+  }, [loadSnapshot]);
 
   const availableCount = useMemo(
     () => items.filter((item) => item.value !== null).length,
     [items],
   );
 
-  const requestButtonLabel = isRefreshing
-    ? "Loading…"
-    : cooldownSeconds > 0
-      ? `${cooldownSeconds}s`
-      : items.length > 0
-        ? "Refresh · 7 credits"
-        : "Load snapshot · 7 credits";
+  const staleCount = useMemo(
+    () => items.filter((item) => item.stale).length,
+    [items],
+  );
 
   return (
     <section className="flex h-full min-w-0 flex-col border border-gray-800 bg-[#111111] p-4 shadow-[0_0_35px_rgba(34,211,238,0.04)]">
@@ -220,8 +283,10 @@ export default function MarketSnapshotDashboardWidget() {
           <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-cyan-400">
             Live Market
           </p>
+
           <div className="mt-0.5 flex items-center gap-2">
             <Activity className="h-4 w-4 shrink-0 text-cyan-300" />
+
             <h2 className="truncate font-mono text-base font-bold text-white">
               Market Snapshot
             </h2>
@@ -231,13 +296,23 @@ export default function MarketSnapshotDashboardWidget() {
         <button
           type="button"
           onClick={() => void loadSnapshot()}
-          disabled={isRefreshing || cooldownSeconds > 0}
-          title={requestButtonLabel}
-          aria-label={requestButtonLabel}
+          disabled={isRefreshing}
+          title={
+            isRefreshing
+              ? "Refreshing BiQuote prices…"
+              : "Refresh BiQuote prices now"
+          }
+          aria-label={
+            isRefreshing
+              ? "Refreshing BiQuote prices"
+              : "Refresh BiQuote prices now"
+          }
           className="flex h-8 w-8 shrink-0 items-center justify-center border border-gray-800 text-gray-400 transition hover:border-cyan-400 hover:text-cyan-300 disabled:cursor-not-allowed disabled:text-gray-700"
         >
           <RefreshCw
-            className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+            className={`h-3.5 w-3.5 ${
+              isRefreshing ? "animate-spin" : ""
+            }`}
           />
         </button>
       </div>
@@ -245,9 +320,16 @@ export default function MarketSnapshotDashboardWidget() {
       <div className="mt-3 flex min-h-8 items-center justify-between gap-3 border-y border-gray-800 py-1.5">
         <span className="flex min-w-0 items-center gap-1.5 truncate text-[10px] text-gray-500">
           <Clock3 className="h-3.5 w-3.5 shrink-0 text-violet-300" />
-          {formatUpdatedTime(quoteTimestamp)}
+          Quote: {formatTime(quoteTimestamp)}
         </span>
-        <span className="shrink-0 font-mono text-[10px] font-bold text-cyan-300">
+
+        <span
+          className={`shrink-0 font-mono text-[10px] font-bold ${
+            staleCount > 0
+              ? "text-red-300"
+              : "text-cyan-300"
+          }`}
+        >
           {availableCount}/5
         </span>
       </div>
@@ -255,7 +337,7 @@ export default function MarketSnapshotDashboardWidget() {
       <div className="mt-2 flex min-h-[170px] flex-1 flex-col">
         {!hasLoadedStoredSnapshot ? (
           <div className="flex flex-1 items-center justify-center border border-gray-800 bg-black">
-            <Database className="h-5 w-5 text-gray-700" />
+            <RefreshCw className="h-5 w-5 animate-spin text-gray-700" />
           </div>
         ) : message && items.length === 0 ? (
           <div className="flex flex-1 items-start gap-2 border border-red-500/30 bg-red-500/5 p-3 text-[10px] text-red-300">
@@ -265,11 +347,13 @@ export default function MarketSnapshotDashboardWidget() {
         ) : items.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center border border-gray-800 bg-black p-4 text-center">
             <Database className="h-5 w-5 text-gray-700" />
+
             <p className="mt-2 font-mono text-xs font-bold text-gray-300">
-              No snapshot loaded
+              Connecting to BiQuote MT5
             </p>
+
             <p className="mt-1 text-[10px] text-gray-600">
-              Use the refresh icon when you need current prices.
+              Current prices load automatically.
             </p>
           </div>
         ) : (
@@ -295,10 +379,22 @@ export default function MarketSnapshotDashboardWidget() {
                       <p className="truncate font-mono text-[11px] font-black text-white">
                         {item.label}
                       </p>
+
+                      {item.stale ? (
+                        <span
+                          title={getStatusTooltip(item)}
+                          aria-label={getStatusTooltip(item)}
+                          className="cursor-help border border-red-400/30 bg-red-400/10 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-red-300"
+                        >
+                          Stale
+                        </span>
+                      ) : null}
+
                       {item.estimated ? (
                         <span
-                          title="Calculated estimate"
-                          className="border border-yellow-400/30 bg-yellow-400/10 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-yellow-300"
+                          title={getStatusTooltip(item)}
+                          aria-label={getStatusTooltip(item)}
+                          className="cursor-help border border-yellow-400/30 bg-yellow-400/10 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-yellow-300"
                         >
                           Est.
                         </span>
@@ -306,7 +402,10 @@ export default function MarketSnapshotDashboardWidget() {
                     </div>
                   </div>
 
-                  <p className="font-mono text-[11px] font-bold text-gray-100">
+                  <p
+                    title={getStatusTooltip(item)}
+                    className="font-mono text-[11px] font-bold text-gray-100"
+                  >
                     {formatPrice(item.label, item.value)}
                   </p>
 
@@ -325,12 +424,29 @@ export default function MarketSnapshotDashboardWidget() {
       {message && items.length > 0 ? (
         <div className="mt-2 flex items-start gap-2 border border-red-500/30 bg-red-500/5 p-2 text-[10px] text-red-300">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{message} Saved prices remain visible.</span>
+          <span>
+            {message} Last successful prices remain visible.
+          </span>
         </div>
       ) : null}
 
-      <p className="mt-2 truncate text-[9px] text-gray-600" title="Manual request only. Market Snapshot and Momentum share one 60-second Twelve Data cooldown.">
-        Manual request · shared 60s cooldown
+      {staleCount > 0 ? (
+        <div className="mt-2 flex items-start gap-2 border border-red-500/30 bg-red-500/5 p-2 text-[10px] text-red-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+
+          <span>
+            BiQuote returned {staleCount} stale{" "}
+            {staleCount === 1 ? "quote" : "quotes"}. Hover the
+            badge to see the actual quote age.
+          </span>
+        </div>
+      ) : null}
+
+      <p
+        className="mt-2 truncate text-[9px] text-gray-600"
+        title={`${provider}. Automatically checked every 60 seconds with browser and server caching disabled.`}
+      >
+        {provider} · automatic 60s refresh · cache disabled
       </p>
     </section>
   );

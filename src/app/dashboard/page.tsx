@@ -32,7 +32,7 @@ import DashboardPreferencesProvider, {
   useDashboardPreferences,
 } from "@/components/dashboard/DashboardPreferencesProvider";
 import CompactCycleSelect from "@/components/dashboard/CompactCycleSelect";
-import RiskManagementWorkspace from "@/components/dashboard/RiskManagementWorkspace";
+import RiskManagementWorkspaceEnhanced from "@/components/dashboard/RiskManagementWorkspaceEnhanced";
 import ConnectPlatformWorkspace from "@/components/dashboard/ConnectPlatformWorkspace";
 import NewEntryWorkspace from "@/components/dashboard/NewEntryWorkspace";
 import JournalWorkspace from "@/components/dashboard/JournalWorkspace";
@@ -2045,7 +2045,7 @@ export default function DashboardPage() {
             ) : selectedSection === "technicals" ? (
               <TechnicalsWorkspace initialTab={selectedTechnicalsTab} />
             ) : selectedSection === "risk-management" ? (
-              <RiskManagementWorkspace />
+              <RiskManagementWorkspaceEnhanced />
             ) : selectedSection === "connect-platform" ? (
               <ConnectPlatformWorkspace />
             ) : selectedSection === "new-entry" ? (

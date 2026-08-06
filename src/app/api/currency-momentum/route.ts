@@ -13,52 +13,89 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-const TWELVE_DATA_BASE_URL = "https://api.twelvedata.com";
-const OUTPUT_SIZE = MOMENTUM_HISTORY_CANDLES + 2;
-const CACHE_SECONDS = 60;
-const REQUEST_TIMEOUT_MS = 25_000;
+const BIQUOTE_BASE_URL = "https://biquote.io";
+const REQUEST_TIMEOUT_MS = 30_000;
+const NATIVE_HISTORY_LIMIT = MOMENTUM_HISTORY_CANDLES + 30;
+const WEEKLY_FIRST_PAGE_LIMIT = 1000;
+const WEEKLY_SECOND_PAGE_LIMIT = 350;
+const MINIMUM_SERIES_CANDLES = MOMENTUM_HISTORY_CANDLES + 1;
 
-const DXY_COMPONENTS = [
-  "EUR/USD",
-  "USD/JPY",
-  "GBP/USD",
-  "USD/CAD",
-  "USD/SEK",
-  "USD/CHF",
-] as const;
-
-const REQUEST_SYMBOLS = Array.from(
-  new Set([
-    ...USD_MOMENTUM_PAIRS.map((pair) => pair.sourceSymbol),
-    "USD/SEK",
-  ]),
-);
-
-const INTERVALS: Record<MomentumTimeframe, string> = {
-  M1: "1min",
-  M5: "5min",
-  M15: "15min",
-  M30: "30min",
-  H1: "1h",
-  H4: "4h",
-  D1: "1day",
-  W1: "1week",
+type InstrumentDefinition = {
+  streamSymbol: string;
+  sourceSymbol: string;
+  label: string;
 };
 
-type TwelveDataValue = {
-  datetime?: unknown;
+type BiQuoteBar = {
+  openTime?: unknown;
   open?: unknown;
   high?: unknown;
   low?: unknown;
   close?: unknown;
+  isOpen?: unknown;
 };
 
-type TwelveDataSeries = {
-  values?: unknown;
-  status?: unknown;
-  code?: unknown;
-  message?: unknown;
+type ParsedBar = {
+  candle: MomentumCandle;
+  isOpen: boolean;
+};
+
+type BiQuoteTick = {
+  symbol?: unknown;
+  bid?: unknown;
+  ask?: unknown;
+  last?: unknown;
+  mid?: unknown;
+  timestamp?: unknown;
+  time?: unknown;
+};
+
+type InstrumentSeriesPayload = MomentumInstrumentSeries & {
+  streamSymbol: string;
+};
+
+const PAIR_INSTRUMENTS: InstrumentDefinition[] = [
+  { streamSymbol: "EURUSD", sourceSymbol: "EUR/USD", label: "EURUSD" },
+  { streamSymbol: "GBPUSD", sourceSymbol: "GBP/USD", label: "GBPUSD" },
+  { streamSymbol: "AUDUSD", sourceSymbol: "AUD/USD", label: "AUDUSD" },
+  { streamSymbol: "NZDUSD", sourceSymbol: "NZD/USD", label: "NZDUSD" },
+  { streamSymbol: "USDCAD", sourceSymbol: "USD/CAD", label: "USDCAD" },
+  { streamSymbol: "USDCHF", sourceSymbol: "USD/CHF", label: "USDCHF" },
+  { streamSymbol: "USDJPY", sourceSymbol: "USD/JPY", label: "USDJPY" },
+];
+
+const EXTRA_INSTRUMENTS: InstrumentDefinition[] = [
+  { streamSymbol: "DXY", sourceSymbol: "DXY", label: "DXY" },
+  { streamSymbol: "USDSEK", sourceSymbol: "USD/SEK", label: "USDSEK" },
+];
+
+const REQUEST_INSTRUMENTS = [
+  ...EXTRA_INSTRUMENTS,
+  ...PAIR_INSTRUMENTS,
+];
+
+const DXY_COMPONENT_STREAM_SYMBOLS = [
+  "EURUSD",
+  "USDJPY",
+  "GBPUSD",
+  "USDCAD",
+  "USDSEK",
+  "USDCHF",
+] as const;
+
+const INTERVALS: Record<
+  Exclude<MomentumTimeframe, "W1">,
+  string
+> = {
+  M1: "1m",
+  M5: "5m",
+  M15: "15m",
+  M30: "30m",
+  H1: "1h",
+  H4: "4h",
+  D1: "1d",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -84,26 +121,26 @@ function readNumber(value: unknown) {
   return null;
 }
 
-function normalizeSymbol(value: string) {
-  return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+function normalizeIsoDateTime(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function parseHeaderNumber(value: string | null) {
-  if (value === null) {
-    return null;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+function parseDateTime(value: string) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function parseCandle(value: unknown): MomentumCandle | null {
+function parseBar(value: unknown): ParsedBar | null {
   if (!isRecord(value)) {
     return null;
   }
 
-  const typed = value as TwelveDataValue;
-  const datetime = readString(typed.datetime);
+  const typed = value as BiQuoteBar;
+  const openTimeValue = readString(typed.openTime);
+  const datetime = openTimeValue
+    ? normalizeIsoDateTime(openTimeValue)
+    : null;
   const open = readNumber(typed.open);
   const high = readNumber(typed.high);
   const low = readNumber(typed.low);
@@ -123,81 +160,360 @@ function parseCandle(value: unknown): MomentumCandle | null {
     return null;
   }
 
-  return { datetime, open, high, low, close };
+  return {
+    candle: {
+      datetime,
+      open,
+      high: Math.max(high, open, close),
+      low: Math.min(low, open, close),
+      close,
+    },
+    isOpen: typed.isOpen === true,
+  };
 }
 
-function parseDateTime(value: string) {
-  const normalized = value.replace(" ", "T");
-  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
-  const timestamp = Date.parse(hasTimezone ? normalized : `${normalized}Z`);
-
-  return Number.isFinite(timestamp) ? timestamp : 0;
+function getUtcWeekStart(value: Date) {
+  const result = new Date(value);
+  result.setUTCHours(0, 0, 0, 0);
+  const mondayOffset = (result.getUTCDay() + 6) % 7;
+  result.setUTCDate(result.getUTCDate() - mondayOffset);
+  return result;
 }
 
-function getSeries(
-  payload: Record<string, unknown>,
-  symbol: string,
-): TwelveDataSeries | null {
-  const direct = payload[symbol];
+function getBucketStart(timeframe: MomentumTimeframe, value: Date) {
+  const result = new Date(value);
+  result.setUTCSeconds(0, 0);
 
-  if (isRecord(direct)) {
-    return direct as TwelveDataSeries;
+  if (timeframe === "M1") return result;
+
+  if (timeframe === "M5") {
+    result.setUTCMinutes(Math.floor(result.getUTCMinutes() / 5) * 5);
+    return result;
   }
 
-  const wanted = normalizeSymbol(symbol);
+  if (timeframe === "M15") {
+    result.setUTCMinutes(Math.floor(result.getUTCMinutes() / 15) * 15);
+    return result;
+  }
 
-  for (const [key, value] of Object.entries(payload)) {
-    if (normalizeSymbol(key) === wanted && isRecord(value)) {
-      return value as TwelveDataSeries;
+  if (timeframe === "M30") {
+    result.setUTCMinutes(Math.floor(result.getUTCMinutes() / 30) * 30);
+    return result;
+  }
+
+  result.setUTCMinutes(0, 0, 0);
+
+  if (timeframe === "H1") return result;
+
+  if (timeframe === "H4") {
+    result.setUTCHours(Math.floor(result.getUTCHours() / 4) * 4);
+    return result;
+  }
+
+  if (timeframe === "D1") {
+    result.setUTCHours(0, 0, 0, 0);
+    return result;
+  }
+
+  return getUtcWeekStart(result);
+}
+
+async function fetchJson(url: URL, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+
+    const payload: unknown = await response.json();
+
+    if (!response.ok) {
+      const message =
+        isRecord(payload) && readString(payload.message)
+          ? readString(payload.message)
+          : `BiQuote returned HTTP ${response.status}.`;
+
+      throw new Error(message ?? "BiQuote request failed.");
+    }
+
+    return payload;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("The BiQuote request timed out.");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchOhlcPage({
+  symbol,
+  interval,
+  limit,
+  to,
+}: {
+  symbol: string;
+  interval: string;
+  limit: number;
+  to?: string;
+}) {
+  const url = new URL(
+    `${BIQUOTE_BASE_URL}/api/${encodeURIComponent(symbol)}/ohlc`,
+  );
+
+  url.searchParams.set("interval", interval);
+  url.searchParams.set("limit", String(limit));
+
+  if (to) {
+    url.searchParams.set("to", to);
+  }
+
+  const payload = await fetchJson(url);
+
+  if (!isRecord(payload) || !Array.isArray(payload.bars)) {
+    throw new Error(`${symbol} returned invalid BiQuote OHLC data.`);
+  }
+
+  return payload.bars
+    .map(parseBar)
+    .filter((bar): bar is ParsedBar => bar !== null)
+    .sort(
+      (first, second) =>
+        parseDateTime(second.candle.datetime) -
+        parseDateTime(first.candle.datetime),
+    );
+}
+
+function deduplicateParsedBars(bars: ParsedBar[]) {
+  const byDatetime = new Map<string, ParsedBar>();
+
+  for (const bar of bars) {
+    const existing = byDatetime.get(bar.candle.datetime);
+
+    if (!existing || bar.isOpen) {
+      byDatetime.set(bar.candle.datetime, bar);
     }
   }
 
-  return null;
+  return Array.from(byDatetime.values()).sort(
+    (first, second) =>
+      parseDateTime(second.candle.datetime) -
+      parseDateTime(first.candle.datetime),
+  );
 }
 
-function parseSeries(
-  payload: Record<string, unknown>,
-  sourceSymbol: string,
-  label: string,
-): MomentumInstrumentSeries {
-  const series = getSeries(payload, sourceSymbol);
+function aggregateDailyBarsToWeekly(dailyBars: ParsedBar[]) {
+  const sortedOldestFirst = [...dailyBars].sort(
+    (first, second) =>
+      parseDateTime(first.candle.datetime) -
+      parseDateTime(second.candle.datetime),
+  );
 
-  if (!series) {
+  const weekly = new Map<string, ParsedBar>();
+
+  for (const bar of sortedOldestFirst) {
+    const parsedDate = new Date(bar.candle.datetime);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      continue;
+    }
+
+    const weekStart = getUtcWeekStart(parsedDate).toISOString();
+    const existing = weekly.get(weekStart);
+
+    if (!existing) {
+      weekly.set(weekStart, {
+        candle: {
+          datetime: weekStart,
+          open: bar.candle.open,
+          high: bar.candle.high,
+          low: bar.candle.low,
+          close: bar.candle.close,
+        },
+        isOpen: bar.isOpen,
+      });
+      continue;
+    }
+
+    existing.candle.high = Math.max(existing.candle.high, bar.candle.high);
+    existing.candle.low = Math.min(existing.candle.low, bar.candle.low);
+    existing.candle.close = bar.candle.close;
+    existing.isOpen = existing.isOpen || bar.isOpen;
+  }
+
+  return Array.from(weekly.values()).sort(
+    (first, second) =>
+      parseDateTime(second.candle.datetime) -
+      parseDateTime(first.candle.datetime),
+  );
+}
+
+function validateCurrentAndHistory(
+  definition: InstrumentDefinition,
+  bars: ParsedBar[],
+) {
+  if (bars.length < MINIMUM_SERIES_CANDLES) {
     throw new Error(
-      `${label} was not returned by Twelve Data. Confirm that ${sourceSymbol} is available on your plan.`,
+      `${definition.label} returned only ${bars.length} usable candles. ` +
+        `${MINIMUM_SERIES_CANDLES} are required.`,
     );
   }
 
-  const status = readString(series.status);
-  const message = readString(series.message);
+  return bars.slice(
+    0,
+    Math.max(NATIVE_HISTORY_LIMIT, MINIMUM_SERIES_CANDLES),
+  );
+}
 
-  if (status === "error" || !Array.isArray(series.values)) {
-    throw new Error(
-      `${label}: ${message ?? "No time-series candles were returned."}`,
+async function fetchInstrumentSeries(
+  definition: InstrumentDefinition,
+  timeframe: MomentumTimeframe,
+): Promise<InstrumentSeriesPayload> {
+  let parsedBars: ParsedBar[];
+
+  if (timeframe === "W1") {
+    const firstPage = await fetchOhlcPage({
+      symbol: definition.streamSymbol,
+      interval: "1d",
+      limit: WEEKLY_FIRST_PAGE_LIMIT,
+    });
+
+    const oldestTimestamp = firstPage.reduce(
+      (oldest, bar) =>
+        Math.min(oldest, parseDateTime(bar.candle.datetime)),
+      Number.POSITIVE_INFINITY,
     );
+
+    const secondPage = Number.isFinite(oldestTimestamp)
+      ? await fetchOhlcPage({
+          symbol: definition.streamSymbol,
+          interval: "1d",
+          limit: WEEKLY_SECOND_PAGE_LIMIT,
+          to: new Date(oldestTimestamp - 1).toISOString(),
+        })
+      : [];
+
+    parsedBars = aggregateDailyBarsToWeekly(
+      deduplicateParsedBars([...firstPage, ...secondPage]),
+    );
+  } else {
+    parsedBars = await fetchOhlcPage({
+      symbol: definition.streamSymbol,
+      interval: INTERVALS[timeframe],
+      limit: NATIVE_HISTORY_LIMIT,
+    });
   }
 
-  const candles = series.values
-    .map(parseCandle)
-    .filter((candle): candle is MomentumCandle => candle !== null)
-    .sort(
-      (first, second) =>
-        parseDateTime(second.datetime) - parseDateTime(first.datetime),
-    );
-
-  const minimumCandles = MOMENTUM_HISTORY_CANDLES + 1;
-
-  if (candles.length < minimumCandles) {
-    throw new Error(
-      `${label} returned only ${candles.length} usable candles. At least ${minimumCandles} are required.`,
-    );
-  }
+  const validated = validateCurrentAndHistory(definition, parsedBars);
 
   return {
-    sourceSymbol,
-    label,
-    candles,
+    streamSymbol: definition.streamSymbol,
+    sourceSymbol: definition.sourceSymbol,
+    label: definition.label,
+    candles: validated.map((bar) => bar.candle),
   };
+}
+
+function getTickMid(tick: BiQuoteTick) {
+  const mid = readNumber(tick.mid);
+
+  if (mid !== null && mid > 0) return mid;
+
+  const bid = readNumber(tick.bid);
+  const ask = readNumber(tick.ask);
+
+  if (bid !== null && ask !== null && bid > 0 && ask > 0) {
+    return (bid + ask) / 2;
+  }
+
+  const last = readNumber(tick.last);
+  return last !== null && last > 0 ? last : null;
+}
+
+function getTickTimestamp(tick: BiQuoteTick) {
+  const raw = readString(tick.timestamp) ?? readString(tick.time);
+
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function fetchLatestTicks(symbols: string[]) {
+  const url = new URL(`${BIQUOTE_BASE_URL}/api/latest`);
+
+  for (const symbol of symbols) {
+    url.searchParams.append("symbols", symbol);
+  }
+
+  const payload = await fetchJson(url);
+
+  if (!isRecord(payload)) {
+    throw new Error("BiQuote returned invalid latest-tick data.");
+  }
+
+  return payload;
+}
+
+function patchCurrentCandlesWithLatestTicks({
+  series,
+  latestTicks,
+  timeframe,
+}: {
+  series: InstrumentSeriesPayload[];
+  latestTicks: Record<string, unknown>;
+  timeframe: MomentumTimeframe;
+}) {
+  const maximumCandles = Math.max(
+    NATIVE_HISTORY_LIMIT,
+    MINIMUM_SERIES_CANDLES,
+  );
+
+  for (const instrument of series) {
+    const tickValue = latestTicks[instrument.streamSymbol];
+
+    if (!isRecord(tickValue)) continue;
+
+    const tick = tickValue as BiQuoteTick;
+    const price = getTickMid(tick);
+    const timestamp = getTickTimestamp(tick);
+    const current = instrument.candles[0];
+
+    if (price === null || !timestamp || !current) continue;
+
+    const bucketStart = getBucketStart(timeframe, timestamp).toISOString();
+    const bucketTimestamp = parseDateTime(bucketStart);
+    const currentTimestamp = parseDateTime(current.datetime);
+
+    if (bucketTimestamp > currentTimestamp) {
+      instrument.candles.unshift({
+        datetime: bucketStart,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+      });
+
+      if (instrument.candles.length > maximumCandles) {
+        instrument.candles.length = maximumCandles;
+      }
+
+      continue;
+    }
+
+    if (bucketTimestamp !== currentTimestamp) continue;
+
+    current.close = price;
+    current.high = Math.max(current.high, price);
+    current.low = Math.min(current.low, price);
+  }
 }
 
 function calculateDxyValue(values: {
@@ -208,39 +524,33 @@ function calculateDxyValue(values: {
   usdsek: number;
   usdchf: number;
 }) {
-  const { eurusd, usdjpy, gbpusd, usdcad, usdsek, usdchf } = values;
-
   return (
     50.14348112 *
-    Math.pow(eurusd, -0.576) *
-    Math.pow(usdjpy, 0.136) *
-    Math.pow(gbpusd, -0.119) *
-    Math.pow(usdcad, 0.091) *
-    Math.pow(usdsek, 0.042) *
-    Math.pow(usdchf, 0.036)
+    Math.pow(values.eurusd, -0.576) *
+    Math.pow(values.usdjpy, 0.136) *
+    Math.pow(values.gbpusd, -0.119) *
+    Math.pow(values.usdcad, 0.091) *
+    Math.pow(values.usdsek, 0.042) *
+    Math.pow(values.usdchf, 0.036)
   );
 }
 
 function buildCalculatedDxySeries(
-  componentSeries: MomentumInstrumentSeries[],
+  seriesByStreamSymbol: Map<string, InstrumentSeriesPayload>,
 ): MomentumInstrumentSeries {
-  const seriesBySymbol = new Map(
-    componentSeries.map((series) => [series.sourceSymbol, series]),
-  );
-
-  for (const symbol of DXY_COMPONENTS) {
-    if (!seriesBySymbol.has(symbol)) {
-      throw new Error(`DXY component ${symbol} is missing.`);
+  for (const symbol of DXY_COMPONENT_STREAM_SYMBOLS) {
+    if (!seriesByStreamSymbol.has(symbol)) {
+      throw new Error(`DXY fallback component ${symbol} is missing.`);
     }
   }
 
   const candleMaps = new Map<string, Map<string, MomentumCandle>>();
 
-  for (const symbol of DXY_COMPONENTS) {
-    const series = seriesBySymbol.get(symbol);
+  for (const symbol of DXY_COMPONENT_STREAM_SYMBOLS) {
+    const series = seriesByStreamSymbol.get(symbol);
 
     if (!series) {
-      throw new Error(`DXY component ${symbol} is missing.`);
+      throw new Error(`DXY fallback component ${symbol} is missing.`);
     }
 
     candleMaps.set(
@@ -249,22 +559,22 @@ function buildCalculatedDxySeries(
     );
   }
 
-  const referenceSeries = seriesBySymbol.get("EUR/USD");
+  const reference = seriesByStreamSymbol.get("EURUSD");
 
-  if (!referenceSeries) {
-    throw new Error("EUR/USD is required to calculate the DXY benchmark.");
+  if (!reference) {
+    throw new Error("EURUSD is required for the DXY fallback.");
   }
 
   const candles: MomentumCandle[] = [];
 
-  for (const referenceCandle of referenceSeries.candles) {
+  for (const referenceCandle of reference.candles) {
     const datetime = referenceCandle.datetime;
-    const eurusd = candleMaps.get("EUR/USD")?.get(datetime);
-    const usdjpy = candleMaps.get("USD/JPY")?.get(datetime);
-    const gbpusd = candleMaps.get("GBP/USD")?.get(datetime);
-    const usdcad = candleMaps.get("USD/CAD")?.get(datetime);
-    const usdsek = candleMaps.get("USD/SEK")?.get(datetime);
-    const usdchf = candleMaps.get("USD/CHF")?.get(datetime);
+    const eurusd = candleMaps.get("EURUSD")?.get(datetime);
+    const usdjpy = candleMaps.get("USDJPY")?.get(datetime);
+    const gbpusd = candleMaps.get("GBPUSD")?.get(datetime);
+    const usdcad = candleMaps.get("USDCAD")?.get(datetime);
+    const usdsek = candleMaps.get("USDSEK")?.get(datetime);
+    const usdchf = candleMaps.get("USDCHF")?.get(datetime);
 
     if (!eurusd || !usdjpy || !gbpusd || !usdcad || !usdsek || !usdchf) {
       continue;
@@ -278,6 +588,7 @@ function buildCalculatedDxySeries(
       usdsek: usdsek.open,
       usdchf: usdchf.open,
     });
+
     const close = calculateDxyValue({
       eurusd: eurusd.close,
       usdjpy: usdjpy.close,
@@ -286,6 +597,7 @@ function buildCalculatedDxySeries(
       usdsek: usdsek.close,
       usdchf: usdchf.close,
     });
+
     const high = calculateDxyValue({
       eurusd: eurusd.low,
       usdjpy: usdjpy.high,
@@ -294,6 +606,7 @@ function buildCalculatedDxySeries(
       usdsek: usdsek.high,
       usdchf: usdchf.high,
     });
+
     const low = calculateDxyValue({
       eurusd: eurusd.high,
       usdjpy: usdjpy.low,
@@ -330,16 +643,16 @@ function buildCalculatedDxySeries(
       parseDateTime(second.datetime) - parseDateTime(first.datetime),
   );
 
-  const minimumCandles = MOMENTUM_HISTORY_CANDLES + 1;
-
-  if (candles.length < minimumCandles) {
+  if (candles.length < MINIMUM_SERIES_CANDLES) {
     throw new Error(
-      `Only ${candles.length} aligned DXY component candles were available. At least ${minimumCandles} are required.`,
+      `The calculated DXY fallback returned only ${candles.length} aligned candles. ` +
+        `${MINIMUM_SERIES_CANDLES} are required.`,
     );
   }
 
   return {
-    sourceSymbol: "Calculated from EURUSD, USDJPY, GBPUSD, USDCAD, USDSEK and USDCHF",
+    sourceSymbol:
+      "Calculated from EURUSD, USDJPY, GBPUSD, USDCAD, USDSEK and USDCHF",
     label: "DXY",
     candles,
   };
@@ -347,73 +660,6 @@ function buildCalculatedDxySeries(
 
 function isTimeframe(value: string): value is MomentumTimeframe {
   return (MOMENTUM_TIMEFRAMES as readonly string[]).includes(value);
-}
-
-async function fetchMomentumPayload(timeframe: MomentumTimeframe) {
-  const apiKey = process.env.TWELVE_DATA_API_KEY?.trim();
-
-  if (!apiKey) {
-    throw new Error(
-      "TWELVE_DATA_API_KEY is missing. Add it to .env.local and restart the server.",
-    );
-  }
-
-  const requestUrl = new URL(`${TWELVE_DATA_BASE_URL}/time_series`);
-
-  requestUrl.searchParams.set("symbol", REQUEST_SYMBOLS.join(","));
-  requestUrl.searchParams.set("interval", INTERVALS[timeframe]);
-  requestUrl.searchParams.set("outputsize", String(OUTPUT_SIZE));
-  requestUrl.searchParams.set("timezone", "UTC");
-  requestUrl.searchParams.set("format", "JSON");
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(requestUrl, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: `apikey ${apiKey}`,
-      },
-      next: { revalidate: CACHE_SECONDS },
-      signal: controller.signal,
-    });
-
-    const payload: unknown = await response.json();
-
-    if (!isRecord(payload)) {
-      throw new Error("Twelve Data returned an invalid momentum response.");
-    }
-
-    const globalStatus = readString(payload.status);
-    const globalMessage = readString(payload.message);
-
-    if (!response.ok || globalStatus === "error") {
-      throw new Error(
-        globalMessage ??
-          `Twelve Data returned HTTP status ${response.status}.`,
-      );
-    }
-
-    return {
-      payload,
-      apiCreditsUsed: parseHeaderNumber(
-        response.headers.get("api-credits-used"),
-      ),
-      apiCreditsLeft: parseHeaderNumber(
-        response.headers.get("api-credits-left"),
-      ),
-    };
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("The Twelve Data momentum request timed out.");
-    }
-
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 export async function GET(request: NextRequest) {
@@ -426,90 +672,165 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error:
-            "timeframe must be M1, M5, M15, M30, H1, H4, D1 or W1.",
+          error: "timeframe must be M1, M5, M15, M30, H1, H4, D1 or W1.",
         },
         { status: 400 },
       );
     }
 
     const fetchedAt = new Date().toISOString();
-    const providerResult = await fetchMomentumPayload(timeframeValue);
-    const requestedSeries = REQUEST_SYMBOLS.map((symbol) =>
-      parseSeries(
-        providerResult.payload,
-        symbol,
-        symbol.replace("/", ""),
+    const settled = await Promise.allSettled(
+      REQUEST_INSTRUMENTS.map((definition) =>
+        fetchInstrumentSeries(definition, timeframeValue),
       ),
     );
-    const seriesBySymbol = new Map(
-      requestedSeries.map((series) => [series.sourceSymbol, series]),
-    );
-    const dxyComponentSeries = DXY_COMPONENTS.map((symbol) => {
-      const series = seriesBySymbol.get(symbol);
 
-      if (!series) {
-        throw new Error(`DXY component ${symbol} is missing.`);
+    const instrumentSeries: InstrumentSeriesPayload[] = [];
+    const failures = new Map<string, string>();
+
+    settled.forEach((result, index) => {
+      const definition = REQUEST_INSTRUMENTS[index];
+
+      if (result.status === "fulfilled") {
+        instrumentSeries.push(result.value);
+      } else {
+        failures.set(
+          definition.streamSymbol,
+          result.reason instanceof Error
+            ? result.reason.message
+            : "Unknown BiQuote OHLC error.",
+        );
       }
-
-      return series;
     });
-    const dxySeries = buildCalculatedDxySeries(dxyComponentSeries);
-    const pairSeries = USD_MOMENTUM_PAIRS.map((pair) => {
-      const series = seriesBySymbol.get(pair.sourceSymbol);
+
+    try {
+      const latestTicks = await fetchLatestTicks(
+        REQUEST_INSTRUMENTS.map((instrument) => instrument.streamSymbol),
+      );
+
+      patchCurrentCandlesWithLatestTicks({
+        series: instrumentSeries,
+        latestTicks,
+        timeframe: timeframeValue,
+      });
+    } catch (error) {
+      console.warn("BIQUOTE MOMENTUM LATEST-TICK PATCH WARNING:", error);
+    }
+
+    const seriesByStreamSymbol = new Map(
+      instrumentSeries.map((series) => [series.streamSymbol, series]),
+    );
+
+    const pairSeries = PAIR_INSTRUMENTS.map((definition) => {
+      const series = seriesByStreamSymbol.get(definition.streamSymbol);
 
       if (!series) {
-        throw new Error(`${pair.label} is missing from the batch response.`);
+        throw new Error(
+          `${definition.label} is unavailable: ${
+            failures.get(definition.streamSymbol) ??
+            "No OHLC series was returned."
+          }`,
+        );
       }
 
       return {
-        ...series,
-        label: pair.label,
+        sourceSymbol: series.sourceSymbol,
+        label: series.label,
+        candles: series.candles,
       };
     });
+
+    const directDxy = seriesByStreamSymbol.get("DXY") ?? null;
+
+    let dxySeries: MomentumInstrumentSeries;
+    let directDxyFeed = false;
+    let benchmarkSource: string;
+    let fallbackDxySeries: MomentumInstrumentSeries | null = null;
+
+    if (directDxy) {
+      dxySeries = {
+        sourceSymbol: "DXY",
+        label: "DXY",
+        candles: directDxy.candles,
+      };
+      directDxyFeed = true;
+      benchmarkSource = "Direct BiQuote DXY index";
+    } else {
+      fallbackDxySeries = buildCalculatedDxySeries(seriesByStreamSymbol);
+      dxySeries = fallbackDxySeries;
+      benchmarkSource = "Calculated six-component DXY fallback";
+    }
+
     const calculation = calculateUsdMomentum({
       dxySeries,
       pairSeries,
       updatedAt: fetchedAt,
     });
 
-    return NextResponse.json({
-      ok: true,
-      provider: "Twelve Data",
-      tracker: "DXY",
-      benchmarkSource: "Calculated FX basket",
-      directDxyFeed: false,
-      timeframe: timeframeValue,
-      interval: INTERVALS[timeframeValue],
-      method:
-        `Net movement across five ${timeframeValue} candles: the current unfinished candle plus the previous four completed candles. Movement is measured from the oldest candle open to the latest live price. The DXY benchmark is calculated locally from EURUSD, USDJPY, GBPUSD, USDCAD, USDSEK and USDCHF. Scores are normalized against rolling five-candle movements from the previous ${MOMENTUM_HISTORY_CANDLES} completed candles.`,
-      requestedInstrumentCount: REQUEST_SYMBOLS.length,
-      batchRequest: true,
-      comparisonCandlesUsed: MOMENTUM_COMPARISON_CANDLES,
-      historyCandlesUsed: MOMENTUM_HISTORY_CANDLES,
-      normalizationWindowsUsed: MOMENTUM_NORMALIZATION_WINDOWS,
-      cacheSeconds: CACHE_SECONDS,
-      fetchedAt,
-      apiCreditsUsed: providerResult.apiCreditsUsed,
-      apiCreditsLeft: providerResult.apiCreditsLeft,
-      benchmark: calculation.benchmark,
-      rankings: calculation.rankings,
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        provider: "BiQuote MT5",
+        tracker: "DXY",
+        benchmarkSource,
+        directDxyFeed,
+        timeframe: timeframeValue,
+        interval:
+          timeframeValue === "W1"
+            ? "1d aggregated to W1"
+            : INTERVALS[timeframeValue],
+        method:
+          `Live net movement across five ${timeframeValue} candles: ` +
+          `the current unfinished candle plus the previous four completed candles. ` +
+          `Movement is measured from the oldest candle open to the latest midpoint. ` +
+          `The previous ${MOMENTUM_HISTORY_CANDLES} completed candles provide ` +
+          `rolling five-candle normalization. The direct BiQuote DXY index is ` +
+          `preferred; its six-component FX basket is retained only as a fallback.`,
+        requestedInstrumentCount: REQUEST_INSTRUMENTS.length,
+        parallelRequests: true,
+        comparisonCandlesUsed: MOMENTUM_COMPARISON_CANDLES,
+        historyCandlesUsed: MOMENTUM_HISTORY_CANDLES,
+        normalizationWindowsUsed: MOMENTUM_NORMALIZATION_WINDOWS,
+        cacheSeconds: 0,
+        fetchedAt,
+        streamSymbols: REQUEST_INSTRUMENTS.map(
+          (instrument) => instrument.streamSymbol,
+        ),
+        instrumentSeries,
+        fallbackDxySeries,
+        benchmark: calculation.benchmark,
+        rankings: calculation.rankings,
+        warnings: Array.from(failures.entries()).map(
+          ([symbol, message]) => ({ symbol, message }),
+        ),
+      },
+      {
+        headers: {
+          "Cache-Control":
+            "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      },
+    );
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
         : "Unknown Currency Momentum error.";
 
-    console.error("CURRENCY MOMENTUM ERROR:", error);
+    console.error("BIQUOTE CURRENCY MOMENTUM ERROR:", error);
 
     return NextResponse.json(
       {
         ok: false,
-        provider: "Twelve Data",
+        provider: "BiQuote MT5",
         error: message,
       },
-      { status: 502 },
+      {
+        status: 502,
+        headers: { "Cache-Control": "no-store" },
+      },
     );
   }
 }

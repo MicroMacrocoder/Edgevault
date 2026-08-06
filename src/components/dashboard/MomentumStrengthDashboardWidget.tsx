@@ -1,18 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Activity,
   AlertCircle,
   Clock3,
   ExternalLink,
   LoaderCircle,
+  Radio,
   RefreshCw,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import CompactCycleSelect from "@/components/dashboard/CompactCycleSelect";
 import { useDashboardPreferences } from "@/components/dashboard/DashboardPreferencesProvider";
+import { useLiveCurrencyMomentum } from "@/components/technicals/useLiveCurrencyMomentum";
 import type {
-  MomentumBenchmarkRow,
   MomentumRankingRow,
   MomentumTimeframe,
   MovementDirection,
@@ -27,17 +30,6 @@ type MomentumCurrency =
   | "CAD"
   | "AUD"
   | "NZD";
-
-type MomentumApiResponse = {
-  ok: boolean;
-  timeframe?: MomentumTimeframe;
-  method?: string;
-  fetchedAt?: string;
-  apiCreditsLeft?: number | null;
-  benchmark?: MomentumBenchmarkRow;
-  rankings?: MomentumRankingRow[];
-  error?: string;
-};
 
 const currencies = [
   {
@@ -66,10 +58,6 @@ const timeframes = [
   { value: "W1" as const, label: "W1", description: "Timeframe: W1" },
 ];
 
-const snapshotKeyPrefix = "edgevault_currency_momentum_snapshot_v3";
-const requestCooldownKey = "edgevault_twelve_data_last_request_v1";
-const REQUEST_COOLDOWN_MS = 60_000;
-
 function formatSigned(value: number, decimalPlaces = 0) {
   const rounded = Number(value.toFixed(decimalPlaces));
   return `${rounded > 0 ? "+" : ""}${rounded.toLocaleString()}`;
@@ -82,89 +70,40 @@ function formatDateTime(value: string) {
     return value;
   }
 
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
+  return date.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
+    second: "2-digit",
   });
 }
 
 function statusClasses(status: MomentumRankingRow["status"]) {
-  if (status === "Aligned") {
-    return "text-green-300";
-  }
-
-  if (status === "Opposing") {
-    return "text-red-300";
-  }
-
+  if (status === "Aligned") return "text-green-300";
+  if (status === "Opposing") return "text-red-300";
   return "text-gray-400";
 }
 
 function movementClasses(movement: MovementDirection) {
-  if (movement === "Up") {
-    return "text-green-300";
-  }
-
-  if (movement === "Down") {
-    return "text-red-300";
-  }
-
+  if (movement === "Up") return "text-green-300";
+  if (movement === "Down") return "text-red-300";
   return "text-gray-400";
 }
 
-function snapshotKey(timeframe: MomentumTimeframe) {
-  return `${snapshotKeyPrefix}_${timeframe}`;
+function connectionClasses(status: string) {
+  if (status === "live") return "text-green-300";
+
+  if (status === "connecting" || status === "reconnecting") {
+    return "text-yellow-300";
+  }
+
+  return "text-red-300";
 }
 
-function readStoredSnapshot(timeframe: MomentumTimeframe) {
-  try {
-    const stored = window.localStorage.getItem(snapshotKey(timeframe));
-
-    if (!stored) {
-      return null;
-    }
-
-    const parsed = JSON.parse(stored) as MomentumApiResponse;
-
-    if (!parsed.ok || !parsed.benchmark || !Array.isArray(parsed.rankings)) {
-      return null;
-    }
-
-    return parsed;
-  } catch (error) {
-    console.error("READ MOMENTUM DASHBOARD SNAPSHOT ERROR:", error);
-    return null;
-  }
-}
-
-function saveStoredSnapshot(
-  timeframe: MomentumTimeframe,
-  payload: MomentumApiResponse,
-) {
-  try {
-    window.localStorage.setItem(snapshotKey(timeframe), JSON.stringify(payload));
-  } catch (error) {
-    console.error("SAVE MOMENTUM DASHBOARD SNAPSHOT ERROR:", error);
-  }
-}
-
-function getCooldownSeconds() {
-  try {
-    const stored = Number(window.localStorage.getItem(requestCooldownKey));
-
-    if (!Number.isFinite(stored) || stored <= 0) {
-      return 0;
-    }
-
-    return Math.max(
-      0,
-      Math.ceil((stored + REQUEST_COOLDOWN_MS - Date.now()) / 1000),
-    );
-  } catch {
-    return 0;
-  }
+function connectionLabel(status: string) {
+  if (status === "live") return "Live";
+  if (status === "reconnecting") return "Reconnecting";
+  if (status === "connecting") return "Connecting";
+  return "Offline";
 }
 
 export default function MomentumStrengthDashboardWidget({
@@ -174,41 +113,21 @@ export default function MomentumStrengthDashboardWidget({
 }) {
   const { preferences, updateSection: updatePreferenceSection } =
     useDashboardPreferences();
+
   const currency = preferences.momentum.currency as MomentumCurrency;
   const timeframe = preferences.momentum.timeframe as MomentumTimeframe;
+  const isDxy = currency === "DXY";
 
-  const [benchmark, setBenchmark] = useState<MomentumBenchmarkRow | null>(null);
-  const [rankings, setRankings] = useState<MomentumRankingRow[]>([]);
-  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
-
-  const applyPayload = useCallback((payload: MomentumApiResponse | null) => {
-    setBenchmark(payload?.benchmark ?? null);
-    setRankings(payload?.rankings ?? []);
-    setFetchedAt(payload?.fetchedAt ?? null);
-  }, []);
-
-  useEffect(() => {
-    const updateCooldown = () => setCooldownSeconds(getCooldownSeconds());
-
-    updateCooldown();
-    const timer = window.setInterval(updateCooldown, 1_000);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    setErrorMessage("");
-
-    if (currency !== "DXY") {
-      applyPayload(null);
-      return;
-    }
-
-    applyPayload(readStoredSnapshot(timeframe));
-  }, [applyPayload, currency, timeframe]);
+  const {
+    benchmark,
+    rankings,
+    fetchedAt,
+    directDxyFeed,
+    connectionStatus,
+    isLoading,
+    errorMessage,
+    refresh,
+  } = useLiveCurrencyMomentum(timeframe, isDxy);
 
   function updateMomentumPreferences(
     patch: Partial<typeof preferences.momentum>,
@@ -219,50 +138,7 @@ export default function MomentumStrengthDashboardWidget({
     });
   }
 
-  const loadMomentum = useCallback(async () => {
-    if (currency !== "DXY" || isLoading || getCooldownSeconds() > 0) {
-      return;
-    }
-
-    window.localStorage.setItem(requestCooldownKey, String(Date.now()));
-    setCooldownSeconds(60);
-    setIsLoading(true);
-    setErrorMessage("");
-
-    try {
-      const response = await fetch(
-        `/api/currency-momentum?timeframe=${encodeURIComponent(timeframe)}`,
-        { cache: "no-store" },
-      );
-      const payload = (await response.json()) as MomentumApiResponse;
-
-      if (!response.ok || !payload.ok || !payload.benchmark) {
-        throw new Error(payload.error ?? "Momentum ranking could not be loaded.");
-      }
-
-      saveStoredSnapshot(timeframe, payload);
-      applyPayload(payload);
-    } catch (error) {
-      console.error("LOAD MOMENTUM DASHBOARD ERROR:", error);
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Momentum ranking could not be loaded.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [applyPayload, currency, isLoading, timeframe]);
-
   const topThree = useMemo(() => rankings.slice(0, 3), [rankings]);
-  const isDxy = currency === "DXY";
-  const requestButtonLabel = isLoading
-    ? "Loading…"
-    : cooldownSeconds > 0
-      ? `${cooldownSeconds}s`
-      : benchmark
-        ? "Refresh · 8 credits"
-        : "Load ranking · 8 credits";
 
   return (
     <section className="flex h-full flex-col border border-gray-800 bg-[#111111] p-4 shadow-[0_0_35px_rgba(34,211,238,0.04)]">
@@ -271,6 +147,7 @@ export default function MomentumStrengthDashboardWidget({
           <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-cyan-400">
             Technicals
           </p>
+
           <div className="mt-0.5 flex items-center gap-2">
             <Activity className="h-4 w-4 shrink-0 text-cyan-300" />
             <h2 className="truncate font-mono text-base font-bold text-white">
@@ -320,23 +197,40 @@ export default function MomentumStrengthDashboardWidget({
       <div className="mt-2 flex min-h-8 items-center justify-between gap-3 border-y border-gray-800 py-1.5">
         <p className="flex min-w-0 items-center gap-1.5 truncate text-[10px] text-gray-500">
           <Clock3 className="h-3.5 w-3.5 shrink-0 text-violet-300" />
-          {fetchedAt ? formatDateTime(fetchedAt) : "No ranking requested"}
+          {fetchedAt
+            ? `Tick ${formatDateTime(fetchedAt)}`
+            : "Loading live Momentum"}
         </p>
 
-        <button
-          type="button"
-          onClick={loadMomentum}
-          disabled={!isDxy || isLoading || cooldownSeconds > 0}
-          title={requestButtonLabel}
-          aria-label={requestButtonLabel}
-          className="flex h-7 w-7 shrink-0 items-center justify-center bg-cyan-400 text-black transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-600"
-        >
-          {isLoading ? (
-            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" />
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <span
+            className={`flex items-center gap-1 font-mono text-[9px] font-bold uppercase ${connectionClasses(
+              connectionStatus,
+            )}`}
+          >
+            {connectionStatus === "live" ? (
+              <Wifi className="h-3 w-3" />
+            ) : (
+              <WifiOff className="h-3 w-3" />
+            )}
+            {connectionLabel(connectionStatus)}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={!isDxy || isLoading}
+            title="Reload BiQuote OHLC history"
+            aria-label="Reload BiQuote OHLC history"
+            className="flex h-7 w-7 shrink-0 items-center justify-center bg-cyan-400 text-black transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-600"
+          >
+            {isLoading ? (
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="mt-2 flex min-h-[170px] flex-1 flex-col border border-gray-800 bg-black">
@@ -351,7 +245,7 @@ export default function MomentumStrengthDashboardWidget({
           <div className="flex flex-1 items-center justify-center">
             <LoaderCircle className="h-5 w-5 animate-spin text-cyan-300" />
           </div>
-        ) : errorMessage ? (
+        ) : errorMessage && !benchmark ? (
           <div className="m-2 flex items-start gap-2 border border-red-500/20 bg-red-500/5 p-2">
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-300" />
             <p className="text-[10px] leading-relaxed text-red-200/80">
@@ -362,16 +256,40 @@ export default function MomentumStrengthDashboardWidget({
           <>
             <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 border-b border-gray-800 px-3 py-2">
               <div className="min-w-0">
-                <p className="truncate font-mono text-xs font-black text-white">
-                  DXY · five candles
-                </p>
-                <p className={`mt-0.5 font-mono text-[10px] font-bold ${movementClasses(benchmark.movement)}`}>
+                <div className="flex items-center gap-1.5">
+                  <p className="truncate font-mono text-xs font-black text-white">
+                    DXY · five candles
+                  </p>
+
+                  <span
+                    title={
+                      directDxyFeed
+                        ? "Direct BiQuote DXY index"
+                        : "Calculated six-component fallback"
+                    }
+                    className="border border-cyan-400/25 bg-cyan-400/5 px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-cyan-300"
+                  >
+                    {directDxyFeed ? "Direct" : "Fallback"}
+                  </span>
+                </div>
+
+                <p
+                  className={`mt-0.5 font-mono text-[10px] font-bold ${movementClasses(
+                    benchmark.movement,
+                  )}`}
+                >
                   {benchmark.movement} · {timeframe}
                 </p>
               </div>
-              <p className={`font-mono text-[10px] font-black ${movementClasses(benchmark.movement)}`}>
+
+              <p
+                className={`font-mono text-[10px] font-black ${movementClasses(
+                  benchmark.movement,
+                )}`}
+              >
                 {formatSigned(benchmark.pointMovement, 1)} pts
               </p>
+
               <p className="font-mono text-[10px] text-gray-500">
                 {formatSigned(benchmark.benchmarkPoints)}
               </p>
@@ -386,32 +304,56 @@ export default function MomentumStrengthDashboardWidget({
                   <span className="flex h-5 w-5 items-center justify-center bg-cyan-400 font-mono text-[9px] font-black text-black">
                     {row.rank}
                   </span>
+
                   <div className="min-w-0">
                     <p className="truncate font-mono text-[11px] font-black text-white">
                       {row.pair} · {row.movement}
                     </p>
-                    <p className={`truncate text-[9px] font-semibold ${statusClasses(row.status)}`}>
+                    <p
+                      className={`truncate text-[9px] font-semibold ${statusClasses(
+                        row.status,
+                      )}`}
+                    >
                       {row.status}
                     </p>
                   </div>
-                  <p className={`font-mono text-[10px] font-black ${statusClasses(row.status)}`}>
+
+                  <p
+                    className={`font-mono text-[10px] font-black ${statusClasses(
+                      row.status,
+                    )}`}
+                  >
                     {formatSigned(row.score)}
                   </p>
-                  <p className={`font-mono text-[9px] ${movementClasses(row.movement)}`}>
+
+                  <p
+                    className={`font-mono text-[9px] ${movementClasses(
+                      row.movement,
+                    )}`}
+                  >
                     {formatSigned(row.pointMovement, 1)} pts
                   </p>
                 </div>
               ))}
             </div>
+
+            {errorMessage ? (
+              <div className="flex items-start gap-2 border-t border-red-500/20 bg-red-500/5 p-2">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-300" />
+                <p className="text-[9px] leading-relaxed text-red-200/70">
+                  {errorMessage}. Last successful ranking remains visible.
+                </p>
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
-            <Activity className="h-6 w-6 text-gray-700" />
+            <Radio className="h-6 w-6 text-gray-700" />
             <p className="mt-2 font-mono text-xs font-bold text-white">
-              No ranking loaded
+              Connecting to BiQuote
             </p>
             <p className="mt-1 text-[10px] text-gray-600">
-              Use the refresh icon above when you need live data.
+              History and live ticks load automatically.
             </p>
           </div>
         )}

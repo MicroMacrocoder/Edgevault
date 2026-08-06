@@ -2,40 +2,23 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-const TWELVE_DATA_BASE_URL = "https://api.twelvedata.com";
-const CACHE_SECONDS = 60;
+const BIQUOTE_LATEST_URL = "https://biquote.io/api/latest";
+const REFRESH_SECONDS = 60;
+const REQUEST_TIMEOUT_MS = 12_000;
+const STALE_AFTER_MINUTES = 5;
 
-const DISPLAY_PAIRS = [
-  { symbol: "EUR/USD", label: "EURUSD", side: "USD quote" },
-  { symbol: "GBP/USD", label: "GBPUSD", side: "USD quote" },
-  { symbol: "USD/CAD", label: "USDCAD", side: "USD base" },
-  { symbol: "USD/JPY", label: "USDJPY", side: "USD base" },
-] as const;
-
-const DXY_COMPONENTS = [
-  "EUR/USD",
-  "GBP/USD",
-  "USD/CAD",
-  "USD/JPY",
-  "USD/CHF",
-  "USD/SEK",
-] as const;
-
-type TwelveDataQuote = {
+type BiQuoteTick = {
   symbol?: unknown;
-  name?: unknown;
-  exchange?: unknown;
-  datetime?: unknown;
+  bid?: unknown;
+  ask?: unknown;
+  mid?: unknown;
+  last?: unknown;
   timestamp?: unknown;
-  close?: unknown;
-  previous_close?: unknown;
-  change?: unknown;
-  percent_change?: unknown;
-  is_market_open?: unknown;
-  status?: unknown;
-  code?: unknown;
-  message?: unknown;
+  time?: unknown;
+  source?: unknown;
+  dayDiffPercent?: unknown;
 };
 
 type SnapshotItem = {
@@ -50,18 +33,62 @@ type SnapshotItem = {
   datetime: string | null;
   marketOpen: boolean | null;
   estimated: boolean;
+  delayed: boolean;
+  delayMinutes: number | null;
+  stale: boolean;
+  quoteAgeMinutes: number | null;
   source: string;
   error: string | null;
 };
 
+const DISPLAY_SYMBOLS = [
+  "EURUSD",
+  "GBPUSD",
+  "USDCAD",
+  "USDJPY",
+] as const;
+
+const DXY_COMPONENT_SYMBOLS = [
+  "EURUSD",
+  "USDJPY",
+  "GBPUSD",
+  "USDCAD",
+  "USDSEK",
+  "USDCHF",
+] as const;
+
+const REQUEST_SYMBOLS = Array.from(
+  new Set([...DISPLAY_SYMBOLS, ...DXY_COMPONENT_SYMBOLS]),
+);
+
+const DISPLAY_METADATA: Record<
+  (typeof DISPLAY_SYMBOLS)[number],
+  { symbol: string; label: string; side: string }
+> = {
+  EURUSD: {
+    symbol: "EUR/USD",
+    label: "EURUSD",
+    side: "USD quote",
+  },
+  GBPUSD: {
+    symbol: "GBP/USD",
+    label: "GBPUSD",
+    side: "USD quote",
+  },
+  USDCAD: {
+    symbol: "USD/CAD",
+    label: "USDCAD",
+    side: "USD base",
+  },
+  USDJPY: {
+    symbol: "USD/JPY",
+    label: "USDJPY",
+    side: "USD base",
+  },
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readString(value: unknown) {
-  return typeof value === "string" && value.trim() !== ""
-    ? value.trim()
-    : null;
 }
 
 function readNumber(value: unknown) {
@@ -77,116 +104,159 @@ function readNumber(value: unknown) {
   return null;
 }
 
-function readBoolean(value: unknown) {
-  return typeof value === "boolean" ? value : null;
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() !== ""
+    ? value.trim()
+    : null;
 }
 
-function normalizeSymbol(value: string) {
-  return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-
-function getQuote(
-  payload: Record<string, unknown>,
-  symbol: string,
-  singleSymbolRequest = false,
-): TwelveDataQuote | null {
-  if (
-    singleSymbolRequest &&
-    ("close" in payload || "status" in payload || "message" in payload)
-  ) {
-    return payload as TwelveDataQuote;
-  }
-
-  const direct = payload[symbol];
-
-  if (isRecord(direct)) {
-    return direct as TwelveDataQuote;
-  }
-
-  const wanted = normalizeSymbol(symbol);
-
-  for (const [key, value] of Object.entries(payload)) {
-    if (normalizeSymbol(key) === wanted && isRecord(value)) {
-      return value as TwelveDataQuote;
-    }
-  }
-
-  return null;
-}
-
-function getQuoteError(quote: TwelveDataQuote | null) {
-  if (!quote) {
-    return "No quote was returned.";
-  }
-
-  const status = readString(quote.status);
-  const message = readString(quote.message);
-
-  if (status === "error" || message) {
-    return message ?? "The provider returned an error.";
-  }
-
-  return null;
-}
-
-function calculatePercentChange(value: number | null, previous: number | null) {
-  if (value === null || previous === null || previous === 0) {
+function readTimestampSeconds(value: unknown) {
+  if (typeof value !== "string" || value.trim() === "") {
     return null;
   }
 
-  return ((value - previous) / previous) * 100;
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return Math.floor(parsed.getTime() / 1000);
 }
 
-function createSnapshotItem(
+function calculateQuoteAgeMinutes(timestamp: number | null) {
+  if (timestamp === null || timestamp <= 0) {
+    return null;
+  }
+
+  const currentTimestamp = Math.floor(Date.now() / 1000);
+  return Math.max(0, Math.floor((currentTimestamp - timestamp) / 60));
+}
+
+function calculatePreviousClose(
+  currentValue: number | null,
+  dayDiffPercent: number | null,
+) {
+  if (
+    currentValue === null ||
+    dayDiffPercent === null ||
+    dayDiffPercent <= -100
+  ) {
+    return null;
+  }
+
+  const divisor = 1 + dayDiffPercent / 100;
+
+  if (divisor === 0) {
+    return null;
+  }
+
+  return currentValue / divisor;
+}
+
+function getMidPrice(tick: BiQuoteTick) {
+  const directMid = readNumber(tick.mid);
+
+  if (directMid !== null && directMid > 0) {
+    return directMid;
+  }
+
+  const bid = readNumber(tick.bid);
+  const ask = readNumber(tick.ask);
+
+  if (bid !== null && ask !== null && bid > 0 && ask > 0) {
+    return (bid + ask) / 2;
+  }
+
+  const last = readNumber(tick.last);
+
+  return last !== null && last > 0 ? last : null;
+}
+
+function unavailableItem(
   symbol: string,
   label: string,
   side: string,
-  quote: TwelveDataQuote | null,
+  error: string,
 ): SnapshotItem {
-  const quoteError = getQuoteError(quote);
-  const value = quoteError ? null : readNumber(quote?.close);
-  const previousClose = quoteError
-    ? null
-    : readNumber(quote?.previous_close);
-  const providerChange = quoteError ? null : readNumber(quote?.change);
-  const providerPercent = quoteError
-    ? null
-    : readNumber(quote?.percent_change);
-
   return {
     symbol,
     label,
     side,
-    value,
-    previousClose,
-    change:
-      providerChange ??
-      (value !== null && previousClose !== null
-        ? value - previousClose
-        : null),
-    percentChange:
-      providerPercent ?? calculatePercentChange(value, previousClose),
-    timestamp: quoteError ? null : readNumber(quote?.timestamp),
-    datetime: quoteError ? null : readString(quote?.datetime),
-    marketOpen: quoteError ? null : readBoolean(quote?.is_market_open),
+    value: null,
+    previousClose: null,
+    change: null,
+    percentChange: null,
+    timestamp: null,
+    datetime: null,
+    marketOpen: null,
     estimated: false,
-    source: "Twelve Data",
-    error:
-      quoteError ??
-      (value === null ? "The latest price is unavailable." : null),
+    delayed: false,
+    delayMinutes: null,
+    stale: false,
+    quoteAgeMinutes: null,
+    source: "BiQuote MT5",
+    error,
   };
 }
 
-function calculateDxyFromQuotes(
-  quotes: Record<string, TwelveDataQuote | null>,
-  field: "close" | "previous_close",
+function parseTick(
+  key: (typeof DISPLAY_SYMBOLS)[number],
+  tick: BiQuoteTick,
+): SnapshotItem {
+  const metadata = DISPLAY_METADATA[key];
+  const value = getMidPrice(tick);
+  const percentChange = readNumber(tick.dayDiffPercent);
+  const previousClose = calculatePreviousClose(value, percentChange);
+  const timestamp =
+    readTimestampSeconds(tick.timestamp) ??
+    readTimestampSeconds(tick.time);
+  const quoteAgeMinutes = calculateQuoteAgeMinutes(timestamp);
+  const stale =
+    quoteAgeMinutes !== null &&
+    quoteAgeMinutes > STALE_AFTER_MINUTES;
+
+  return {
+    symbol: metadata.symbol,
+    label: metadata.label,
+    side: metadata.side,
+    value,
+    previousClose,
+    change:
+      value !== null && previousClose !== null
+        ? value - previousClose
+        : null,
+    percentChange,
+    timestamp,
+    datetime:
+      timestamp === null
+        ? null
+        : new Date(timestamp * 1000).toISOString(),
+    marketOpen: null,
+    estimated: false,
+    delayed: false,
+    delayMinutes: null,
+    stale,
+    quoteAgeMinutes,
+    source: readString(tick.source) ?? "BiQuote MT5",
+    error:
+      value === null
+        ? "BiQuote returned no current midpoint."
+        : stale
+          ? `BiQuote's quote is ${quoteAgeMinutes} minutes old.`
+          : null,
+  };
+}
+
+function calculateDxy(
+  prices: Record<string, number | null>,
 ) {
-  const eurusd = readNumber(quotes["EUR/USD"]?.[field]);
-  const usdjpy = readNumber(quotes["USD/JPY"]?.[field]);
-  const gbpusd = readNumber(quotes["GBP/USD"]?.[field]);
-  const usdcad = readNumber(quotes["USD/CAD"]?.[field]);
-  const usdsek = readNumber(quotes["USD/SEK"]?.[field]);
-  const usdchf = readNumber(quotes["USD/CHF"]?.[field]);
+  const eurusd = prices.EURUSD ?? null;
+  const usdjpy = prices.USDJPY ?? null;
+  const gbpusd = prices.GBPUSD ?? null;
+  const usdcad = prices.USDCAD ?? null;
+  const usdsek = prices.USDSEK ?? null;
+  const usdchf = prices.USDCHF ?? null;
 
   if (
     eurusd === null ||
@@ -216,166 +286,204 @@ function calculateDxyFromQuotes(
   );
 }
 
-async function fetchQuotePayload(symbols: readonly string[]) {
-  const apiKey = process.env.TWELVE_DATA_API_KEY;
+function createDxyItem(
+  ticks: Record<string, BiQuoteTick | undefined>,
+): SnapshotItem {
+  const currentPrices: Record<string, number | null> = {};
+  const previousPrices: Record<string, number | null> = {};
+  const timestamps: number[] = [];
+  const sourceNames = new Set<string>();
+  let stale = false;
+  let oldestAgeMinutes: number | null = null;
 
-  if (!apiKey) {
-    throw new Error("Missing TWELVE_DATA_API_KEY.");
-  }
+  for (const symbol of DXY_COMPONENT_SYMBOLS) {
+    const tick = ticks[symbol];
 
-  const requestUrl = new URL(`${TWELVE_DATA_BASE_URL}/quote`);
-  requestUrl.searchParams.set("symbol", symbols.join(","));
+    if (!tick) {
+      currentPrices[symbol] = null;
+      previousPrices[symbol] = null;
+      continue;
+    }
 
-  const response = await fetch(requestUrl, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      Authorization: `apikey ${apiKey}`,
-    },
-    next: { revalidate: CACHE_SECONDS },
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `Twelve Data quote request failed with status ${response.status}.`,
+    const currentValue = getMidPrice(tick);
+    const percentChange = readNumber(tick.dayDiffPercent);
+    const previousClose = calculatePreviousClose(
+      currentValue,
+      percentChange,
     );
+    const timestamp =
+      readTimestampSeconds(tick.timestamp) ??
+      readTimestampSeconds(tick.time);
+    const quoteAgeMinutes = calculateQuoteAgeMinutes(timestamp);
+
+    currentPrices[symbol] = currentValue;
+    previousPrices[symbol] = previousClose;
+
+    if (timestamp !== null) {
+      timestamps.push(timestamp);
+    }
+
+    if (quoteAgeMinutes !== null) {
+      oldestAgeMinutes =
+        oldestAgeMinutes === null
+          ? quoteAgeMinutes
+          : Math.max(oldestAgeMinutes, quoteAgeMinutes);
+
+      if (quoteAgeMinutes > STALE_AFTER_MINUTES) {
+        stale = true;
+      }
+    }
+
+    const source = readString(tick.source);
+
+    if (source) {
+      sourceNames.add(source);
+    }
   }
 
-  const payload: unknown = await response.json();
+  const value = calculateDxy(currentPrices);
+  const previousClose = calculateDxy(previousPrices);
+  const timestamp =
+    timestamps.length > 0 ? Math.min(...timestamps) : null;
+  const percentChange =
+    value !== null && previousClose !== null && previousClose !== 0
+      ? ((value - previousClose) / previousClose) * 100
+      : null;
 
-  if (!isRecord(payload)) {
-    throw new Error("Twelve Data returned an invalid quote response.");
+  return {
+    symbol: "DXY",
+    label: "DXY",
+    side: "Live FX basket estimate",
+    value,
+    previousClose,
+    change:
+      value !== null && previousClose !== null
+        ? value - previousClose
+        : null,
+    percentChange,
+    timestamp,
+    datetime:
+      timestamp === null
+        ? null
+        : new Date(timestamp * 1000).toISOString(),
+    marketOpen: null,
+    estimated: true,
+    delayed: false,
+    delayMinutes: null,
+    stale,
+    quoteAgeMinutes: oldestAgeMinutes,
+    source:
+      sourceNames.size > 0
+        ? `BiQuote ${Array.from(sourceNames).join(" / ")}`
+        : "BiQuote MT5",
+    error:
+      value === null
+        ? "One or more DXY component prices are unavailable."
+        : stale
+          ? "One or more DXY component quotes are stale."
+          : null,
+  };
+}
+
+async function fetchBiQuoteTicks() {
+  const params = new URLSearchParams();
+
+  for (const symbol of REQUEST_SYMBOLS) {
+    params.append("symbols", symbol);
   }
 
-  const status = readString(payload.status);
-  const message = readString(payload.message);
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT_MS,
+  );
 
-  if (status === "error" && message) {
-    throw new Error(message);
+  try {
+    const response = await fetch(
+      `${BIQUOTE_LATEST_URL}?${params.toString()}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `BiQuote request failed with status ${response.status}.`,
+      );
+    }
+
+    const payload: unknown = await response.json();
+
+    if (!isRecord(payload)) {
+      throw new Error("BiQuote returned invalid latest-tick data.");
+    }
+
+    const ticks: Record<string, BiQuoteTick | undefined> = {};
+
+    for (const symbol of REQUEST_SYMBOLS) {
+      const value = payload[symbol];
+
+      ticks[symbol] = isRecord(value)
+        ? (value as BiQuoteTick)
+        : undefined;
+    }
+
+    return ticks;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return payload;
 }
 
 function latestTimestamp(items: SnapshotItem[]) {
   const timestamps = items
     .map((item) => item.timestamp)
-    .filter((value): value is number => value !== null && value > 0);
+    .filter((value): value is number => value !== null);
 
-  if (timestamps.length === 0) {
-    return null;
-  }
-
-  return Math.max(...timestamps);
+  return timestamps.length > 0 ? Math.max(...timestamps) : null;
 }
 
 export async function GET() {
   try {
-    const [forexPayload, dxyResult] = await Promise.all([
-      fetchQuotePayload(DXY_COMPONENTS),
-      fetchQuotePayload(["DXY"])
-        .then((payload) => ({ payload, error: null as string | null }))
-        .catch((error: unknown) => ({
-          payload: null,
-          error:
-            error instanceof Error
-              ? error.message
-              : "DXY quote request failed.",
-        })),
-    ]);
+    const ticks = await fetchBiQuoteTicks();
+    const dxyItem = createDxyItem(ticks);
 
-    const componentQuotes: Record<string, TwelveDataQuote | null> = {};
+    const pairItems = DISPLAY_SYMBOLS.map((symbol) => {
+      const tick = ticks[symbol];
+      const metadata = DISPLAY_METADATA[symbol];
 
-    for (const symbol of DXY_COMPONENTS) {
-      componentQuotes[symbol] = getQuote(forexPayload, symbol);
-    }
-
-    const pairItems = DISPLAY_PAIRS.map((pair) =>
-      createSnapshotItem(
-        pair.symbol,
-        pair.label,
-        pair.side,
-        componentQuotes[pair.symbol],
-      ),
-    );
-
-    const directDxyQuote = dxyResult.payload
-      ? getQuote(dxyResult.payload, "DXY", true)
-      : null;
-    const directDxyItem = createSnapshotItem(
-      "DXY",
-      "DXY",
-      "Dollar index",
-      directDxyQuote,
-    );
-
-    let dxyItem = directDxyItem;
-
-    if (directDxyItem.value === null) {
-      const syntheticValue = calculateDxyFromQuotes(
-        componentQuotes,
-        "close",
-      );
-      const syntheticPreviousClose = calculateDxyFromQuotes(
-        componentQuotes,
-        "previous_close",
-      );
-      const componentItems = DXY_COMPONENTS.map((symbol) =>
-        createSnapshotItem(
-          symbol,
-          normalizeSymbol(symbol),
-          "DXY component",
-          componentQuotes[symbol],
-        ),
-      );
-      const componentTimestamp = latestTimestamp(componentItems);
-
-      dxyItem = {
-        symbol: "DXY",
-        label: "DXY",
-        side: "Dollar index estimate",
-        value: syntheticValue,
-        previousClose: syntheticPreviousClose,
-        change:
-          syntheticValue !== null && syntheticPreviousClose !== null
-            ? syntheticValue - syntheticPreviousClose
-            : null,
-        percentChange: calculatePercentChange(
-          syntheticValue,
-          syntheticPreviousClose,
-        ),
-        timestamp: componentTimestamp,
-        datetime: null,
-        marketOpen: componentItems.some(
-          (item) => item.marketOpen === true,
-        ),
-        estimated: true,
-        source: "Twelve Data live FX basket estimate",
-        error:
-          syntheticValue === null
-            ? dxyResult.error ??
-              directDxyItem.error ??
-              "DXY is unavailable."
-            : null,
-      };
-    }
+      return tick
+        ? parseTick(symbol, tick)
+        : unavailableItem(
+            metadata.symbol,
+            metadata.label,
+            metadata.side,
+            `BiQuote returned no quote for ${symbol}.`,
+          );
+    });
 
     const items = [dxyItem, ...pairItems];
     const availableCount = items.filter(
       (item) => item.value !== null,
     ).length;
-    const timestamp = latestTimestamp(items);
+    const quoteTimestamp = latestTimestamp(items);
 
     return NextResponse.json(
       {
         ok: availableCount > 0,
-        provider: "Twelve Data",
+        provider: "BiQuote MT5",
         updatedAt: new Date().toISOString(),
         quoteTimestamp:
-          timestamp === null
+          quoteTimestamp === null
             ? null
-            : new Date(timestamp * 1000).toISOString(),
-        refreshAfterSeconds: CACHE_SECONDS,
+            : new Date(
+                quoteTimestamp * 1000,
+              ).toISOString(),
+        refreshAfterSeconds: REFRESH_SECONDS,
         availableCount,
         requestedCount: items.length,
         items,
@@ -384,7 +492,9 @@ export async function GET() {
         status: availableCount > 0 ? 200 : 502,
         headers: {
           "Cache-Control":
-            "public, s-maxage=60, stale-while-revalidate=120",
+            "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
         },
       },
     );
@@ -392,18 +502,28 @@ export async function GET() {
     const message =
       error instanceof Error
         ? error.message
-        : "Unknown market snapshot error.";
+        : "Unknown BiQuote Market Snapshot error.";
 
-    console.error("MARKET SNAPSHOT ERROR:", error);
+    console.error("BIQUOTE MARKET SNAPSHOT ERROR:", error);
 
     return NextResponse.json(
       {
         ok: false,
-        provider: "Twelve Data",
+        provider: "BiQuote MT5",
+        updatedAt: new Date().toISOString(),
+        quoteTimestamp: null,
+        refreshAfterSeconds: REFRESH_SECONDS,
+        availableCount: 0,
+        requestedCount: 5,
         error: message,
         items: [],
       },
-      { status: 502 },
+      {
+        status: 502,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
     );
   }
 }
