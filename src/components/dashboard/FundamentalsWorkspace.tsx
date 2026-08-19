@@ -7,7 +7,7 @@ import {
   LineChart,
   Newspaper,
 } from "lucide-react";
-import COTAnalysis from "@/components/fundamentals/COTAnalysis";
+import COTWorkspace from "@/components/fundamentals/COTWorkspace";
 import EconomicCalendar from "@/components/fundamentals/EconomicCalendar";
 import VolumeOITracker from "@/components/fundamentals/VolumeOITracker";
 
@@ -185,7 +185,7 @@ export default function FundamentalsWorkspace({
 
       {activeTab === "cot" ? (
         <div className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-4">
-          <COTAnalysis />
+          <COTWorkspace />
         </div>
       ) : null}
 

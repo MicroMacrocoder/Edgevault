@@ -20,7 +20,8 @@ export type DashboardWidgetId =
   | "economic-calendar"
   | "journal-library"
   | "saved-trade-logs"
-  | "market-snapshot";
+  | "market-snapshot"
+  | "market-intelligence";
 
 export type DashboardWidgetVisibility = Record<DashboardWidgetId, boolean>;
 
@@ -87,6 +88,7 @@ export const defaultDashboardPreferences: DashboardPreferences = {
     performance: true,
     "economic-calendar": true,
     "market-snapshot": true,
+    "market-intelligence": true,
     "saved-trade-logs": true,
     "journal-library": true,
   },

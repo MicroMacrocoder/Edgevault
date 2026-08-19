@@ -26,6 +26,11 @@ import TechnicalsWorkspace, {
 import CurrencyStrengthDashboardWidget from "@/components/dashboard/CurrencyStrengthDashboardWidget";
 import MomentumStrengthDashboardWidget from "@/components/dashboard/MomentumStrengthDashboardWidget";
 import MarketSnapshotDashboardWidget from "@/components/dashboard/MarketSnapshotDashboardWidget";
+import MarketIntelligenceDashboardWidget from "@/components/dashboard/MarketIntelligenceDashboardWidget";
+import ReportsWorkspace, {
+  type ReportsMarketIntelligenceSymbol,
+  type ReportsWorkspaceView,
+} from "@/components/dashboard/ReportsWorkspace";
 import DashboardPreferencesProvider, {
   type DashboardWidgetId,
   type DashboardWidgetVisibility,
@@ -227,39 +232,6 @@ const sidebarItems = [
     label: "Settings",
     section: "settings" as DashboardSection,
     icon: Settings,
-  },
-];
-
-const quickAccessItems = [
-  {
-    label: "Journal",
-    section: "journal" as DashboardSection,
-    icon: BookOpen,
-    color: "bg-yellow-400",
-  },
-  {
-    label: "New Entry",
-    section: "new-entry" as DashboardSection,
-    icon: PlusCircle,
-    color: "bg-orange-400",
-  },
-  {
-    label: "Trade Log",
-    section: "trade-log" as DashboardSection,
-    icon: ClipboardList,
-    color: "bg-green-400",
-  },
-  {
-    label: "Fundamentals",
-    section: "fundamentals" as DashboardSection,
-    icon: BarChart3,
-    color: "bg-cyan-400",
-  },
-  {
-    label: "Risk Management",
-    section: "risk-management" as DashboardSection,
-    icon: ShieldCheck,
-    color: "bg-red-500",
   },
 ];
 
@@ -701,6 +673,7 @@ const dashboardCOTMarkets = [
   { label: "Japanese Yen", symbol: "JPY" },
   { label: "Canadian Dollar", symbol: "CAD" },
   { label: "Swiss Franc", symbol: "CHF" },
+  { label: "New Zealand Dollar", symbol: "NZD" },
 ];
 
 function formatDashboardNumber(value: number | null | undefined) {
@@ -743,6 +716,11 @@ const dashboardWidgetOptions: {
     description: "Full-width Commitment of Traders chart.",
   },
   {
+    id: "market-intelligence",
+    label: "Market Intelligence",
+    description: "Saved fundamental market context and report summary.",
+  },
+  {
     id: "currency-strength",
     label: "Currency Strength",
     description: "Compact strength readings and refresh controls.",
@@ -783,10 +761,12 @@ function OverviewSection({
   onSelectSection,
   onOpenFundamentalsTab,
   onOpenTechnicalsTab,
+  onOpenMarketIntelligence,
 }: {
   onSelectSection: (section: DashboardSection) => void;
   onOpenFundamentalsTab: (tab: FundamentalsTab) => void;
   onOpenTechnicalsTab: (tab: TechnicalsTab) => void;
+  onOpenMarketIntelligence: (symbol: ReportsMarketIntelligenceSymbol) => void;
 }) {
   const {
     preferences,
@@ -1062,6 +1042,7 @@ function OverviewSection({
       performance: true,
       "economic-calendar": true,
       "market-snapshot": true,
+      "market-intelligence": true,
       "saved-trade-logs": true,
       "journal-library": true,
     });
@@ -1099,6 +1080,12 @@ function OverviewSection({
           Edit dashboard
         </button>
       </div>
+
+      {visibleWidgets["market-intelligence"] ? (
+        <MarketIntelligenceDashboardWidget
+          onOpen={onOpenMarketIntelligence}
+        />
+      ) : null}
 
       {visibleWidgets.cot ? (
         <DashboardCard className="p-5">
@@ -1695,114 +1682,6 @@ function WorkspacePlaceholder({
   );
 }
 
-function RightPanel({
-  onSelectSection,
-}: {
-  onSelectSection: (section: DashboardSection) => void;
-}) {
-  return (
-    <aside className="grid min-w-0 gap-4 sm:grid-cols-2 2xl:block 2xl:space-y-5">
-      <DashboardCard className="p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-gray-400">Welcome back,</p>
-            <p className="mt-1 font-mono text-lg font-bold text-white">
-              EdgeTrader
-            </p>
-            <p className="font-mono text-xs font-semibold text-yellow-400">
-              Pro Plan
-            </p>
-          </div>
-
-          <div className="relative flex h-14 w-14 items-center justify-center rounded-full border border-yellow-400/40 font-mono text-lg font-bold text-yellow-400">
-            EV
-            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-green-400" />
-          </div>
-        </div>
-      </DashboardCard>
-
-      <DashboardCard className="p-5">
-        <h2 className="mb-4 font-mono text-sm font-bold uppercase tracking-[0.18em] text-white">
-          Key Stats
-        </h2>
-
-        <div className="space-y-4 text-sm">
-          {[
-            ["Profit Factor", "2.35", "text-white"],
-            ["Sharpe Ratio", "1.85", "text-white"],
-            ["Sortino Ratio", "2.73", "text-white"],
-            ["Max Drawdown", "-8.7%", "text-red-400"],
-            ["Best Day", "+$2,450.00", "text-green-400"],
-            ["Worst Day", "-$980.00", "text-red-400"],
-          ].map(([label, value, color]) => (
-            <div key={label} className="flex items-center justify-between">
-              <span className="text-gray-400">{label}</span>
-              <span className={"font-mono font-semibold " + color}>
-                {value}
-              </span>
-            </div>
-          ))}
-        </div>
-      </DashboardCard>
-
-      <DashboardCard className="p-5">
-        <h2 className="mb-4 font-mono text-sm font-bold uppercase tracking-[0.18em] text-white">
-          Quick Access
-        </h2>
-
-        <div className="space-y-3">
-          {quickAccessItems.map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => onSelectSection(item.section)}
-                className="flex w-full items-center justify-between border border-gray-800 bg-black px-3 py-3 text-left transition hover:border-yellow-400 hover:bg-[#111111]"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={
-                      "flex h-8 w-8 items-center justify-center " + item.color
-                    }
-                  >
-                    <Icon className="h-4 w-4 text-black" />
-                  </div>
-                  <span className="font-mono text-sm font-semibold text-white">
-                    {item.label}
-                  </span>
-                </div>
-
-                <ChevronRight className="h-4 w-4 text-gray-500" />
-              </button>
-            );
-          })}
-        </div>
-      </DashboardCard>
-
-
-      <DashboardCard className="p-5">
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 items-center justify-center bg-yellow-400 text-black">
-            <Lock className="h-5 w-5" />
-          </div>
-
-          <div>
-            <p className="font-mono text-sm font-bold text-white">
-              Workspace Mode
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-gray-400">
-              Sidebar clicks update the main dashboard area instead of leaving
-              the dashboard page.
-            </p>
-          </div>
-        </div>
-      </DashboardCard>
-    </aside>
-  );
-}
-
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -1812,6 +1691,12 @@ export default function DashboardPage() {
     useState<FundamentalsTab>("hub");
   const [selectedTechnicalsTab, setSelectedTechnicalsTab] =
     useState<TechnicalsTab>("hub");
+  const [selectedReportsView, setSelectedReportsView] =
+    useState<ReportsWorkspaceView>("hub");
+  const [
+    selectedReportsMarketIntelligenceSymbol,
+    setSelectedReportsMarketIntelligenceSymbol,
+  ] = useState<ReportsMarketIntelligenceSymbol>("EUR");
 
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [currentUserEmail, setCurrentUserEmail] = useState("");
@@ -1877,6 +1762,22 @@ export default function DashboardPage() {
     setSelectedSection("technicals");
   }
 
+  function handleOpenMarketIntelligence(
+    symbol: ReportsMarketIntelligenceSymbol,
+  ) {
+    setSelectedReportsMarketIntelligenceSymbol(symbol);
+    setSelectedReportsView("market-intelligence");
+    setSelectedSection("reports");
+  }
+
+  function handleSidebarSectionSelect(section: DashboardSection) {
+    if (section === "reports") {
+      setSelectedReportsView("hub");
+    }
+
+    setSelectedSection(section);
+  }
+
   if (isCheckingSession) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-black text-white">
@@ -1924,7 +1825,7 @@ export default function DashboardPage() {
                 <button
                   key={item.label}
                   type="button"
-                  onClick={() => setSelectedSection(item.section)}
+                  onClick={() => handleSidebarSectionSelect(item.section)}
                   className={
                     isActive
                       ? "flex w-full items-center gap-3 border border-yellow-400 bg-yellow-400 px-4 py-3 text-left font-mono text-sm font-bold text-black shadow-[0_0_25px_rgba(250,204,21,0.18)]"
@@ -2013,7 +1914,7 @@ export default function DashboardPage() {
                   <button
                     key={item.label}
                     type="button"
-                    onClick={() => setSelectedSection(item.section)}
+                    onClick={() => handleSidebarSectionSelect(item.section)}
                     className={
                       isActive
                         ? "flex min-w-max items-center gap-2 border border-yellow-400 bg-yellow-400 px-3 py-2 font-mono text-xs font-bold text-black"
@@ -2028,13 +1929,13 @@ export default function DashboardPage() {
             </nav>
           </div>
 
-          <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_260px]">
-            <div className="min-w-0">
+          <div className="min-w-0">
             {selectedSection === "overview" ? (
               <OverviewSection
                 onSelectSection={setSelectedSection}
                 onOpenFundamentalsTab={handleOpenFundamentalsTab}
                 onOpenTechnicalsTab={handleOpenTechnicalsTab}
+                onOpenMarketIntelligence={handleOpenMarketIntelligence}
               />
             ) : selectedSection === "journal" ? (
               <JournalWorkspace />
@@ -2044,6 +1945,13 @@ export default function DashboardPage() {
               <FundamentalsWorkspace initialTab={selectedFundamentalsTab} />
             ) : selectedSection === "technicals" ? (
               <TechnicalsWorkspace initialTab={selectedTechnicalsTab} />
+            ) : selectedSection === "reports" ? (
+              <ReportsWorkspace
+                initialView={selectedReportsView}
+                initialMarketIntelligenceSymbol={
+                  selectedReportsMarketIntelligenceSymbol
+                }
+              />
             ) : selectedSection === "risk-management" ? (
               <RiskManagementWorkspaceEnhanced />
             ) : selectedSection === "connect-platform" ? (
@@ -2054,9 +1962,6 @@ export default function DashboardPage() {
               <WorkspacePlaceholder selectedSection={selectedSection} />
             )}
 
-            </div>
-
-            <RightPanel onSelectSection={setSelectedSection} />
           </div>
         </section>
       </div>

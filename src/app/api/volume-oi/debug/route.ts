@@ -1,117 +1,351 @@
 import { NextResponse } from "next/server";
 
-const CME_VOI_XSLT_URL =
-  "https://www.cmegroup.com/CmeWS/mvc/xsltTransformer.do";
+const CME_VOLUME_TOTAL_URL =
+  "https://www.cmegroup.com/CmeWS/mvc/Volume/Total";
 
-function decodeHtml(value: string) {
-  return value
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+const NZD_PAGE_URL =
+  "https://www.cmegroup.com/markets/fx/g10/new-zealand-dollar.volume.html";
 
-function stripHtml(value: string) {
-  return decodeHtml(value.replace(/<[^>]+>/g, " "));
-}
+type CmeVolumeRow = Record<string, unknown> & {
+  errors?: string;
+  tradeDate?: string;
+  formattedDate?: string;
+  volume?: string;
+  futureVolume?: string;
+  optionVolume?: string;
+  oi?: string;
+  futureOi?: string;
+  optionOi?: string;
+  isDataMineLink?: string;
+};
 
-function toNumber(value: string | undefined) {
-  if (!value) return null;
+type CmeVolumeResponse = {
+  vdate?: CmeVolumeRow[];
+};
 
-  const cleanedValue = value
-    .replace(/,/g, "")
-    .replace(/\+/g, "")
-    .replace(/−/g, "-")
-    .trim();
-
-  const parsedValue = Number(cleanedValue);
-
-  if (Number.isNaN(parsedValue)) {
-    return null;
+function toNumber(value: unknown) {
+  if (
+    typeof value !== "string" &&
+    typeof value !== "number"
+  ) {
+    return 0;
   }
 
-  return parsedValue;
+  const parsed = Number(
+    String(value)
+      .replace(/,/g, "")
+      .trim()
+  );
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : 0;
 }
 
-function parseHtmlRows(html: string) {
-  const rows = html.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+function uniqueNumbers(values: string[]) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => Number(value))
+        .filter(
+          (value) =>
+            Number.isInteger(value) &&
+            value > 0
+        )
+    )
+  ).sort((a, b) => a - b);
+}
 
-  return rows
-    .map((rowHtml) => {
-      const cellMatches = rowHtml.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) || [];
+function collectProductIdCandidates(
+  html: string
+) {
+  const candidates: string[] = [];
 
-      const cells = cellMatches
-        .map((cellHtml) => stripHtml(cellHtml))
-        .filter(Boolean);
+  const patterns = [
+    /\/CmeWS\/mvc\/Volume\/Total\/(\d+)/gi,
+    /["']productId["']\s*[:=]\s*["']?(\d+)/gi,
+    /\bproductId\s*[:=]\s*["']?(\d+)/gi,
+    /\bproduct-id\s*=\s*["'](\d+)["']/gi,
+    /\bproduct-id\s*:\s*["']?(\d+)/gi,
+    /\bproductId%22%3A%22?(\d+)/gi,
+  ];
 
-      const numericCells = cells
-        .map((cell) => toNumber(cell))
-        .filter((value): value is number => value !== null);
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null =
+      null;
+
+    while (
+      (match = pattern.exec(html)) !==
+      null
+    ) {
+      if (match[1]) {
+        candidates.push(match[1]);
+      }
+    }
+  }
+
+  return uniqueNumbers(candidates);
+}
+
+function collectNzdSnippets(html: string) {
+  const lower = html.toLowerCase();
+
+  const terms = [
+    "productid",
+    "new zealand",
+    "nzd/usd",
+    "6n",
+    "/volume/total/",
+  ];
+
+  const snippets: string[] = [];
+
+  for (const term of terms) {
+    let fromIndex = 0;
+
+    while (snippets.length < 25) {
+      const index = lower.indexOf(
+        term,
+        fromIndex
+      );
+
+      if (index === -1) {
+        break;
+      }
+
+      const start = Math.max(
+        0,
+        index - 180
+      );
+
+      const end = Math.min(
+        html.length,
+        index + 320
+      );
+
+      snippets.push(
+        html
+          .slice(start, end)
+          .replace(/\s+/g, " ")
+          .trim()
+      );
+
+      fromIndex =
+        index + term.length;
+    }
+  }
+
+  return Array.from(
+    new Set(snippets)
+  ).slice(0, 25);
+}
+
+async function inspectNzdPage() {
+  const response = await fetch(
+    NZD_PAGE_URL,
+    {
+      cache: "no-store",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) EdgeVault/1.0",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    }
+  );
+
+  const html = await response.text();
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    htmlLength: html.length,
+    productIdCandidates:
+      collectProductIdCandidates(html),
+    snippets:
+      collectNzdSnippets(html),
+  };
+}
+
+async function testCandidate(
+  productId: number
+) {
+  const url =
+    CME_VOLUME_TOTAL_URL +
+    "/" +
+    productId +
+    "?days=10";
+
+  try {
+    const response = await fetch(
+      url,
+      {
+        cache: "no-store",
+        headers: {
+          "User-Agent":
+            "EdgeVault/1.0",
+          Accept:
+            "application/json,text/plain,*/*",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const body =
+        await response
+          .text()
+          .catch(() => "");
 
       return {
-        cells,
-        numericCells,
-        text: cells.join(" ").toUpperCase(),
+        productId,
+        ok: false,
+        status: response.status,
+        responsePreview:
+          body.slice(0, 250),
+        usableRowCount: 0,
+        latestTradeDate: null,
+        latestRows: [],
       };
-    })
-    .filter((row) => row.cells.length > 1);
+    }
+
+    const payload =
+      (await response.json()) as
+        CmeVolumeResponse;
+
+    const rows =
+      Array.isArray(payload.vdate)
+        ? payload.vdate
+        : [];
+
+    const normalizedRows =
+      rows.map((row) => ({
+        tradeDate:
+          typeof row.tradeDate ===
+          "string"
+            ? row.tradeDate
+            : null,
+
+        formattedDate:
+          typeof row.formattedDate ===
+          "string"
+            ? row.formattedDate
+            : null,
+
+        futureVolume:
+          toNumber(
+            row.futureVolume
+          ),
+
+        futureOi:
+          toNumber(
+            row.futureOi
+          ),
+
+        optionVolume:
+          toNumber(
+            row.optionVolume
+          ),
+
+        optionOi:
+          toNumber(
+            row.optionOi
+          ),
+
+        totalVolume:
+          toNumber(
+            row.volume
+          ),
+
+        totalOi:
+          toNumber(
+            row.oi
+          ),
+      }));
+
+    const usableRows =
+      normalizedRows.filter(
+        (row) =>
+          row.formattedDate &&
+          row.futureVolume > 0 &&
+          row.futureOi > 0
+      );
+
+    const latestRows =
+      usableRows
+        .slice(-3)
+        .reverse();
+
+    return {
+      productId,
+      ok: true,
+      status: response.status,
+      rowCount: rows.length,
+      usableRowCount:
+        usableRows.length,
+      latestTradeDate:
+        latestRows[0]
+          ?.formattedDate ??
+        null,
+      latestRows,
+    };
+  } catch (error) {
+    return {
+      productId,
+      ok: false,
+      status: null,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unknown CME candidate test error.",
+      usableRowCount: 0,
+      latestTradeDate: null,
+      latestRows: [],
+    };
+  }
 }
 
 export async function GET() {
   try {
-    const cmeDate = "20260507";
+    const pageInspection =
+      await inspectNzdPage();
 
-    const sourcePath =
-      "/da/VOI/V2/Totals/TradeDate/" +
-      cmeDate +
-      "/AssetClassId/3/ReportType/F?excluded=CEE,CEU,KCB";
+    const candidates =
+      pageInspection
+        .productIdCandidates
+        .slice(0, 20);
 
-    const params = new URLSearchParams({
-      xlstDoc: "/XSLT/md/voi/voi_asset_class_final.xsl",
-      url: sourcePath,
-      hidelinks: "false",
-      html: "",
-    });
+    const candidateTests =
+      await Promise.all(
+        candidates.map(
+          (productId) =>
+            testCandidate(
+              productId
+            )
+        )
+      );
 
-    const response = await fetch(CME_VOI_XSLT_URL + "?" + params.toString(), {
-      cache: "no-store",
-      headers: {
-        "User-Agent": "EdgeVault/1.0",
-        Accept: "text/html,application/xhtml+xml,application/xml",
-      },
-    });
-
-    const html = await response.text();
-    const rows = parseHtmlRows(html);
-
-    const targets = [
-      "EURO FX",
-      "BRITISH POUND",
-      "JAPANESE YEN",
-      "CANADIAN DOLLAR",
-      "SWISS FRANC",
-      "AUSTRALIAN DOLLAR",
-    ];
-
-    const matches = targets.map((target) => {
-      const targetRows = rows
-        .filter((row) => row.text.includes(target))
-        .slice(0, 8);
-
-      return {
-        target,
-        rows: targetRows,
-      };
-    });
+    const usableCandidates =
+      candidateTests.filter(
+        (candidate) =>
+          candidate.ok &&
+          candidate.usableRowCount >
+            0
+      );
 
     return NextResponse.json(
       {
         error: false,
-        date: cmeDate,
-        matches,
+        readOnly: true,
+        message:
+          "NZD CME product-ID diagnostic completed. No EdgeVault data was changed.",
+        pageUrl:
+          NZD_PAGE_URL,
+        endpoint:
+          CME_VOLUME_TOTAL_URL +
+          "/{productId}?days=10",
+        pageInspection,
+        candidateTests,
+        usableCandidates,
       },
       { status: 200 }
     );
@@ -119,10 +353,11 @@ export async function GET() {
     return NextResponse.json(
       {
         error: true,
+        readOnly: true,
         message:
           error instanceof Error
             ? error.message
-            : "Failed to debug Volume/OI rows.",
+            : "Failed to inspect the NZD CME product page.",
       },
       { status: 500 }
     );

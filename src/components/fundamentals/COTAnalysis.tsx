@@ -21,6 +21,7 @@ const COT_SYMBOL_OPTIONS = [
   { label: "Canadian Dollar", symbol: "CAD" },
   { label: "Swiss Franc", symbol: "CHF" },
   { label: "Australian Dollar", symbol: "AUD" },
+  { label: "New Zealand Dollar", symbol: "NZD" },
 ];
 
 type PositionGroup = "noncommercial" | "commercial" | "nonreportable";

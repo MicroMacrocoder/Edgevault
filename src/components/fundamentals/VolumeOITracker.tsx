@@ -38,6 +38,7 @@ const SYMBOL_OPTIONS = [
   { label: "Canadian Dollar", value: "CAD" },
   { label: "Swiss Franc", value: "CHF" },
   { label: "Australian Dollar", value: "AUD" },
+  { label: "New Zealand Dollar", value: "NZD" },
   { label: "US Dollar Index", value: "DXY" },
 ];
 

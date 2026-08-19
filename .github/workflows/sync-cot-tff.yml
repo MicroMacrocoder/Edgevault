@@ -3,11 +3,6 @@ name: Sync CFTC TFF Participant History
 on:
   workflow_dispatch:
 
-  schedule:
-    # Runs every day at 1:00 AM West Africa Time.
-    - cron: "0 1 * * *"
-      timezone: "Africa/Lagos"
-
 permissions:
   contents: read
 

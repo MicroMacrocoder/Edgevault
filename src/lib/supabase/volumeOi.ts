@@ -6,7 +6,8 @@ import type {
 
 function getSupabaseServerClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseServiceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
@@ -16,15 +17,54 @@ function getSupabaseServerClient() {
     throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
   }
 
-  return createClient(supabaseUrl, supabaseServiceRoleKey);
+  return createClient(
+    supabaseUrl,
+    supabaseServiceRoleKey
+  );
+}
+
+function dedupeVolumeOIReports(
+  reports: VolumeOIExternalReport[]
+) {
+  const uniqueReports = new Map<
+    string,
+    VolumeOIExternalReport
+  >();
+
+  const duplicateKeys = new Set<string>();
+
+  for (const report of reports) {
+    const key = `${report.symbol}:${report.trade_date}`;
+
+    if (uniqueReports.has(key)) {
+      duplicateKeys.add(key);
+    }
+
+    uniqueReports.set(key, report);
+  }
+
+  if (duplicateKeys.size) {
+    console.warn(
+      "DUPLICATE VOLUME OI REPORT KEYS REMOVED BEFORE UPSERT:",
+      Array.from(duplicateKeys)
+    );
+  }
+
+  return Array.from(uniqueReports.values());
 }
 
 export async function upsertVolumeOIReports(
   reports: VolumeOIExternalReport[]
 ) {
-  const supabaseServer = getSupabaseServerClient();
+  const supabaseServer =
+    getSupabaseServerClient();
 
-  const rows = reports.map((report) => ({
+  const uniqueReports =
+    dedupeVolumeOIReports(reports);
+
+  const updatedAt = new Date().toISOString();
+
+  const rows = uniqueReports.map((report) => ({
     symbol: report.symbol,
     currency: report.currency,
     market_name: report.market_name,
@@ -36,8 +76,12 @@ export async function upsertVolumeOIReports(
     open_interest: report.open_interest,
 
     source: report.source,
-    updated_at: new Date().toISOString(),
+    updated_at: updatedAt,
   }));
+
+  if (!rows.length) {
+    return { error: null };
+  }
 
   const { error } = await supabaseServer
     .from("volume_oi_data")
@@ -46,15 +90,22 @@ export async function upsertVolumeOIReports(
     });
 
   if (error) {
-    console.error("UPSERT VOLUME OI REPORTS ERROR:", error.message);
+    console.error(
+      "UPSERT VOLUME OI REPORTS ERROR:",
+      error.message
+    );
+
     return { error };
   }
 
   return { error: null };
 }
 
-export async function getStoredVolumeOIReports(symbol?: string) {
-  const supabaseServer = getSupabaseServerClient();
+export async function getStoredVolumeOIReports(
+  symbol?: string
+) {
+  const supabaseServer =
+    getSupabaseServerClient();
 
   let query = supabaseServer
     .from("volume_oi_data")
@@ -68,7 +119,10 @@ export async function getStoredVolumeOIReports(symbol?: string) {
   const { data, error } = await query;
 
   if (error) {
-    console.error("GET STORED VOLUME OI REPORTS ERROR:", error.message);
+    console.error(
+      "GET STORED VOLUME OI REPORTS ERROR:",
+      error.message
+    );
 
     return {
       error,
@@ -82,8 +136,11 @@ export async function getStoredVolumeOIReports(symbol?: string) {
   };
 }
 
-export async function getLatestVolumeOIUpdatedAt(symbol?: string) {
-  const supabaseServer = getSupabaseServerClient();
+export async function getLatestVolumeOIUpdatedAt(
+  symbol?: string
+) {
+  const supabaseServer =
+    getSupabaseServerClient();
 
   let query = supabaseServer
     .from("volume_oi_data")
@@ -99,7 +156,10 @@ export async function getLatestVolumeOIUpdatedAt(symbol?: string) {
   const { data, error } = await query;
 
   if (error) {
-    console.error("GET LATEST VOLUME OI UPDATED AT ERROR:", error.message);
+    console.error(
+      "GET LATEST VOLUME OI UPDATED AT ERROR:",
+      error.message
+    );
 
     return {
       error,
@@ -107,10 +167,57 @@ export async function getLatestVolumeOIUpdatedAt(symbol?: string) {
     };
   }
 
-  const latestRow = Array.isArray(data) && data.length ? data[0] : null;
+  const latestRow =
+    Array.isArray(data) && data.length
+      ? data[0]
+      : null;
 
   return {
     error: null,
-    updatedAt: latestRow?.updated_at || null,
+    updatedAt:
+      latestRow?.updated_at || null,
+  };
+}
+
+export async function getLatestVolumeOITradeDate(
+  symbol?: string
+) {
+  const supabaseServer =
+    getSupabaseServerClient();
+
+  let query = supabaseServer
+    .from("volume_oi_data")
+    .select("trade_date")
+    .not("trade_date", "is", null)
+    .order("trade_date", { ascending: false })
+    .limit(1);
+
+  if (symbol && symbol !== "all") {
+    query = query.eq("symbol", symbol);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error(
+      "GET LATEST VOLUME OI TRADE DATE ERROR:",
+      error.message
+    );
+
+    return {
+      error,
+      tradeDate: null as string | null,
+    };
+  }
+
+  const latestRow =
+    Array.isArray(data) && data.length
+      ? data[0]
+      : null;
+
+  return {
+    error: null,
+    tradeDate:
+      latestRow?.trade_date || null,
   };
 }

@@ -47,6 +47,13 @@ export const COT_SYMBOLS: COTSymbol[] = [
     currency: "AUD",
     market_name: "AUSTRALIAN DOLLAR - CHICAGO MERCANTILE EXCHANGE",
   },
+  {
+    label: "New Zealand Dollar",
+    symbol: "NZD",
+    currency: "NZD",
+    market_name: "NZ DOLLAR - CHICAGO MERCANTILE EXCHANGE",
+    cftc_code: "112741",
+  },
 ];
 
 type ParsedLegacyRow = {

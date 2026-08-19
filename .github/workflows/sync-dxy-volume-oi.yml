@@ -1,22 +1,22 @@
-name: Sync DXY Volume and Open Interest
+name: Refresh Fundamentals and Market Intelligence
 
 on:
   workflow_dispatch:
 
   schedule:
-    # Runs Monday through Saturday at 6:00 PM New York time.
-    # America/New_York automatically handles EST and EDT changes.
-    - cron: "0 18 * * 1-6"
+    # Runs every day at 12:00 AM New York time.
+    # America/New_York automatically follows EST / EDT.
+    - cron: "0 0 * * *"
       timezone: "America/New_York"
 
 permissions:
   contents: read
 
 jobs:
-  sync-dxy-volume-oi:
-    name: Collect and save DXY data
+  refresh-fundamentals:
+    name: Refresh sources and generate Market Intelligence
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -38,5 +38,46 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Sync Stooq DXY Volume and Open Interest
+      - name: Refresh CFTC TFF participant data
+        id: cot
+        continue-on-error: true
+        run: npx tsx scripts/sync-cot-tff.ts
+
+      - name: Refresh DXY Volume and Open Interest
+        id: dxy
+        continue-on-error: true
         run: npx tsx scripts/sync-stooq-dxy.ts
+
+      - name: Refresh CME FX Volume and Open Interest
+        id: cme
+        continue-on-error: true
+        run: npx tsx scripts/sync-cme-volume-oi.ts
+
+      - name: Generate all Market Intelligence reports
+        id: intelligence
+        if: always()
+        continue-on-error: true
+        run: npx tsx scripts/generate-market-intelligence.ts
+
+      - name: Verify daily refresh status
+        if: always()
+        env:
+          COT_OUTCOME: ${{ steps.cot.outcome }}
+          DXY_OUTCOME: ${{ steps.dxy.outcome }}
+          CME_OUTCOME: ${{ steps.cme.outcome }}
+          INTELLIGENCE_OUTCOME: ${{ steps.intelligence.outcome }}
+        run: |
+          echo "COT TFF: $COT_OUTCOME"
+          echo "DXY Volume/OI: $DXY_OUTCOME"
+          echo "CME FX Volume/OI: $CME_OUTCOME"
+          echo "Market Intelligence: $INTELLIGENCE_OUTCOME"
+
+          if [ "$COT_OUTCOME" != "success" ] || \
+             [ "$DXY_OUTCOME" != "success" ] || \
+             [ "$CME_OUTCOME" != "success" ] || \
+             [ "$INTELLIGENCE_OUTCOME" != "success" ]; then
+            echo "One or more daily refresh stages failed."
+            exit 1
+          fi
+
+          echo "All daily fundamentals refresh stages completed successfully."
