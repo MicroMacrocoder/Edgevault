@@ -35,4 +35,4 @@ jobs:
         run: npm ci
 
       - name: Sync CFTC TFF participant history
-        run: npx tsx scripts/sync-cot-tff.t
+        run: npx tsx scripts/sync-cot-tff.ts
