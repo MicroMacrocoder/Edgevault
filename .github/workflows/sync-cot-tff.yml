@@ -1,0 +1,38 @@
+name: Sync CFTC TFF Participant History
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # Runs every day at 1:00 AM West Africa Time.
+    - cron: "0 1 * * *"
+      timezone: "Africa/Lagos"
+
+permissions:
+  contents: read
+
+jobs:
+  sync-cot-tff:
+    name: Refresh CFTC TFF participant data
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Download EdgeVault code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Sync CFTC TFF participant history
+        run: npx tsx scripts/sync-cot-tff.t
