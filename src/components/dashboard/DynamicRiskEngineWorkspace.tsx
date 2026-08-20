@@ -7,7 +7,7 @@ import {
   type CustomEntry, type PortfolioSlot, type FrameworkParams, DEFAULT_FRAMEWORK_PARAMS,
   calculateRiskAmount, generateEntries, calculateZoneLiquidation,
   calculateLivePnL, calculateHealth, smartAutoLot, buildPortfolioFramework,
-  calculateAutoTP,
+  calculateAutoTP, classifyTradingStyle,
 } from '@/lib/riskEngine';
 import {
   Layers, Plus, X, Zap, Activity, TrendingUp, PieChart,
@@ -47,6 +47,7 @@ interface Preset {
   positions: Position[];
   frameworkParams: FrameworkParams;
   activeSlotIds?: string[];
+  activeSlotId?: string;
   timestamp: number;
 }
 
@@ -98,20 +99,27 @@ function createPositionForSlot(slot: PortfolioSlot): Position {
     useAutoLot: true,
     autoLotMode: 'accumulated',
     targetPrice: 1.08000,
-    currentPrice: 1.08450,
+    currentPrice: 0,
     customEntries: [],
   };
 }
 
 // LocalStorage helpers
 function loadFromStorage<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
   try {
-    const raw = localStorage.getItem(key);
+    const raw = window.localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
-  } catch { return fallback; }
+  } catch {
+    return fallback;
+  }
 }
+
 function saveToStorage(key: string, data: unknown): void {
-  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(data));
+  } catch {}
 }
 
 // TradingView symbol mapping
@@ -122,91 +130,102 @@ function getTVSymbol(pair: string): string {
     'USDCHF': 'FX:USDCHF', 'EURGBP': 'FX:EURGBP', 'EURJPY': 'FX:EURJPY',
     'GBPJPY': 'FX:GBPJPY', 'DXY': 'TVC:DXY', 'US30': 'BLACKBULL:US30',
     'NAS100': 'PEPPERSTONE:NAS100', 'SPX500': 'FOREXCOM:SPXUSD', 'XAUUSD': 'OANDA:XAUUSD',
+    'BTCUSD': 'BITSTAMP:BTCUSD', 'ETHUSD': 'BITSTAMP:ETHUSD',
   };
   return map[pair] || 'FX:EURUSD';
 }
 
-// Default prices per pair
-const DEFAULT_PRICES: Record<string, { entry: number; target: number; current: number }> = {
-  'EURUSD': { entry: 1.08500, target: 1.08000, current: 1.08450 },
-  'GBPUSD': { entry: 1.26500, target: 1.26000, current: 1.26450 },
-  'AUDUSD': { entry: 0.65500, target: 0.65000, current: 0.65450 },
-  'NZDUSD': { entry: 0.59500, target: 0.59000, current: 0.59450 },
-  'USDJPY': { entry: 157.500, target: 158.000, current: 157.550 },
-  'USDCAD': { entry: 1.37500, target: 1.38000, current: 1.37550 },
-  'USDCHF': { entry: 0.89500, target: 0.89000, current: 0.89450 },
-  'EURGBP': { entry: 0.85500, target: 0.85000, current: 0.85450 },
-  'EURJPY': { entry: 163.500, target: 163.000, current: 163.450 },
-  'GBPJPY': { entry: 198.500, target: 198.000, current: 198.450 },
-  'DXY': { entry: 104.500, target: 104.000, current: 104.450 },
-  'US30': { entry: 42500.00, target: 42300.00, current: 42480.00 },
-  'NAS100': { entry: 18500.00, target: 18300.00, current: 18480.00 },
-  'SPX500': { entry: 5400.00, target: 5380.00, current: 5395.00 },
-  'XAUUSD': { entry: 2350.00, target: 2330.00, current: 2345.00 },
-  'BTCUSD': { entry: 68000.00, target: 67000.00, current: 67800.00 },
-  'ETHUSD': { entry: 3500.00, target: 3400.00, current: 3480.00 },
-};
+// ============================================================
+// LIVE PRICE FEED — BiQuote through the existing Next.js API route
+// ============================================================
+interface LivePriceQuote {
+  price: number;
+  bid: number | null;
+  ask: number | null;
+  provider: string;
+  quoteTimestamp: string | null;
+  stale: boolean;
+}
 
-// ============================================================
-// LIVE PRICE FEED — uses Next.js API route
-// ============================================================
-async function fetchLivePrice(pair: string): Promise<number | null> {
+async function fetchLivePrice(pair: string): Promise<LivePriceQuote | null> {
   try {
-    const resp = await fetch(`/api/live-price?pair=${pair}`);
+    const resp = await fetch(`/api/live-price?pair=${encodeURIComponent(pair)}`, {
+      cache: 'no-store',
+    });
     if (!resp.ok) return null;
+
     const data = await resp.json();
-    return data.price || null;
+    const price = Number(data.price);
+    if (!Number.isFinite(price) || price <= 0) return null;
+
+    return {
+      price,
+      bid: Number.isFinite(Number(data.bid)) ? Number(data.bid) : null,
+      ask: Number.isFinite(Number(data.ask)) ? Number(data.ask) : null,
+      provider: typeof data.provider === 'string' ? data.provider : 'BiQuote MT5',
+      quoteTimestamp: typeof data.quoteTimestamp === 'string' ? data.quoteTimestamp : null,
+      stale: data.stale === true,
+    };
   } catch {
     return null;
   }
 }
+
+const DEFAULT_ZONE_PIPS: Record<TradingStyle, number> = {
+  Scalp: 10,
+  Day: 30,
+  Swing: 80,
+  Position: 200,
+};
 
 // ============================================================
 // COMPONENT
 // ============================================================
 export default function DynamicRiskEngineWorkspace() {
   // Capital
-  const [totalCapital, setTotalCapital] = useState(() => loadFromStorage('re_capital_v7', 500));
+  const [totalCapital, setTotalCapital] = useState(500);
 
   // Framework parameters (user adjustable)
-  const [frameworkParams, setFrameworkParams] = useState<FrameworkParams>(() => loadFromStorage('re_fwParams_v7', DEFAULT_FRAMEWORK_PARAMS));
+  const [frameworkParams, setFrameworkParams] = useState<FrameworkParams>(DEFAULT_FRAMEWORK_PARAMS);
   const [showAdjuster, setShowAdjuster] = useState(false);
 
-  // Active slot IDs (which portfolios are visible/active)
-  const [activeSlotIds, setActiveSlotIds] = useState<string[]>(() => loadFromStorage('re_activeSlotIds_v7', ['scalp', 'day', 'swing', 'position']));
+  // Active portfolio slot. Only this selected framework is previewed.
+  const [activeSlotId, setActiveSlotId] = useState('scalp');
+  const [activeSlotIds, setActiveSlotIds] = useState<string[]>(['scalp']);
 
   // Build the framework from capital + params
-  const slots = useMemo(() => buildPortfolioFramework(totalCapital, frameworkParams), [totalCapital, frameworkParams]);
+  const slots = useMemo(
+    () => buildPortfolioFramework(totalCapital, frameworkParams),
+    [totalCapital, frameworkParams],
+  );
 
-  // Only show active/selected slots
-  const visibleSlots = slots.filter(s => activeSlotIds.includes(s.id));
-
-  // Active portfolio slot
-  const [activeSlotId, setActiveSlotId] = useState(() => loadFromStorage('re_activeSlot_v7', 'scalp'));
-
-  // Positions per slot
-  const [positions, setPositions] = useState<Position[]>(() => {
-    const saved = loadFromStorage<Position[] | null>('re_positions_v7', null);
-    if (saved && saved.length > 0) return saved;
-    return buildPortfolioFramework(500).map(slot => createPositionForSlot(slot));
-  });
+  // Positions are still stored per style so switching styles does not destroy
+  // a plan, but only the selected style is shown in the overview.
+  const [positions, setPositions] = useState<Position[]>(() =>
+    buildPortfolioFramework(500).map(slot => createPositionForSlot(slot)),
+  );
 
   // Tabs
   const [activeTab, setActiveTab] = useState<'engine' | 'presets' | 'log' | 'alerts'>('engine');
 
   // Presets
-  const [presets, setPresets] = useState<Preset[]>(() => loadFromStorage('riskPresets_v7', []));
+  const [presets, setPresets] = useState<Preset[]>([]);
   const [presetName, setPresetName] = useState('');
 
   // Trade Log
-  const [tradeLog, setTradeLog] = useState<TradeRecord[]>(() => loadFromStorage('tradeLog_v7', []));
+  const [tradeLog, setTradeLog] = useState<TradeRecord[]>([]);
   const [showLogForm, setShowLogForm] = useState(false);
   const [logResult, setLogResult] = useState<'win' | 'loss' | 'breakeven' | 'open'>('win');
   const [logPnl, setLogPnl] = useState(0);
   const [logNotes, setLogNotes] = useState('');
 
   // Alerts
-  const [alerts, setAlerts] = useState<AlertConfig>(() => loadFromStorage('riskAlerts_v7', { enabled: true, healthThreshold: 40, pnlTargetPercent: 100, pnlStopPercent: -80 }));
+  const [alerts, setAlerts] = useState<AlertConfig>({
+    enabled: true,
+    healthThreshold: 40,
+    pnlTargetPercent: 100,
+    pnlStopPercent: -80,
+  });
 
   // Chart
   const [showChart, setShowChart] = useState(false);
@@ -215,12 +234,18 @@ export default function DynamicRiskEngineWorkspace() {
   // Live Price Feed
   const [livePriceEnabled, setLivePriceEnabled] = useState(true);
   const [livePriceStatus, setLivePriceStatus] = useState<'idle' | 'fetching' | 'connected' | 'error'>('idle');
+  const [livePriceProvider, setLivePriceProvider] = useState('BiQuote MT5');
+  const [livePriceError, setLivePriceError] = useState<string | null>(null);
   const [lastPriceUpdate, setLastPriceUpdate] = useState<number>(0);
   const livePriceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const manualPriceOverride = useRef(false);
+  const priceRequestIdRef = useRef(0);
 
   // Auto TP (target price auto-calculated from style R:R)
   const [autoTP, setAutoTP] = useState(true);
+
+  // Storage hydration guard prevents server/default state from overwriting the
+  // saved machine state when the user returns to the page.
+  const [storageReady, setStorageReady] = useState(false);
 
   // Trade Log — update open trade
   const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
@@ -228,38 +253,99 @@ export default function DynamicRiskEngineWorkspace() {
   const [editPnl, setEditPnl] = useState(0);
 
   // ============================================================
+  // LOAD SAVED MACHINE STATE ONCE
+  // ============================================================
+  useEffect(() => {
+    const savedCapital = loadFromStorage('re_capital_v7', 500);
+    const savedFramework = loadFromStorage<FrameworkParams>('re_fwParams_v7', DEFAULT_FRAMEWORK_PARAMS);
+    const savedSlotId = loadFromStorage('re_activeSlot_v7', 'scalp');
+    const savedPositions = loadFromStorage<Position[] | null>('re_positions_v7', null);
+
+    setTotalCapital(savedCapital);
+    setFrameworkParams({ ...DEFAULT_FRAMEWORK_PARAMS, ...savedFramework });
+    setActiveSlotId(savedSlotId);
+    setActiveSlotIds([savedSlotId]);
+    if (savedPositions && savedPositions.length > 0) {
+      setPositions(savedPositions);
+    }
+
+    setPresets(loadFromStorage<Preset[]>('riskPresets_v7', []));
+    setTradeLog(loadFromStorage<TradeRecord[]>('tradeLog_v7', []));
+    setAlerts(loadFromStorage<AlertConfig>('riskAlerts_v7', {
+      enabled: true,
+      healthThreshold: 40,
+      pnlTargetPercent: 100,
+      pnlStopPercent: -80,
+    }));
+    setAutoTP(loadFromStorage('re_autoTP_v7', true));
+    setLivePriceEnabled(loadFromStorage('re_livePriceEnabled_v7', true));
+    setStorageReady(true);
+  }, []);
+
+  // ============================================================
   // AUTO-PERSIST
   // ============================================================
-  useEffect(() => { saveToStorage('re_capital_v7', totalCapital); }, [totalCapital]);
-  useEffect(() => { saveToStorage('re_fwParams_v7', frameworkParams); }, [frameworkParams]);
-  useEffect(() => { saveToStorage('re_activeSlotIds_v7', activeSlotIds); }, [activeSlotIds]);
-  useEffect(() => { saveToStorage('re_activeSlot_v7', activeSlotId); }, [activeSlotId]);
-  useEffect(() => { saveToStorage('re_positions_v7', positions); }, [positions]);
-
-  // Ensure positions exist for all slots
   useEffect(() => {
+    if (storageReady) saveToStorage('re_capital_v7', totalCapital);
+  }, [storageReady, totalCapital]);
+  useEffect(() => {
+    if (storageReady) saveToStorage('re_fwParams_v7', frameworkParams);
+  }, [storageReady, frameworkParams]);
+  useEffect(() => {
+    if (storageReady) saveToStorage('re_activeSlotIds_v7', [activeSlotId]);
+  }, [storageReady, activeSlotId]);
+  useEffect(() => {
+    if (storageReady) saveToStorage('re_activeSlot_v7', activeSlotId);
+  }, [storageReady, activeSlotId]);
+  useEffect(() => {
+    if (storageReady) saveToStorage('re_positions_v7', positions);
+  }, [storageReady, positions]);
+  useEffect(() => {
+    if (storageReady) saveToStorage('re_autoTP_v7', autoTP);
+  }, [storageReady, autoTP]);
+  useEffect(() => {
+    if (storageReady) saveToStorage('re_livePriceEnabled_v7', livePriceEnabled);
+  }, [storageReady, livePriceEnabled]);
+
+  // Ensure positions exist for all slots after saved state has loaded.
+  useEffect(() => {
+    if (!storageReady) return;
     const existingIds = positions.map(p => p.portfolioSlotId);
     const missing = slots.filter(s => !existingIds.includes(s.id));
     if (missing.length > 0) {
       setPositions(prev => [...prev, ...missing.map(s => createPositionForSlot(s))]);
     }
-  }, [slots]);
+  }, [storageReady, slots, positions]);
 
   // ============================================================
   // DERIVED STATE
   // ============================================================
-  const activeSlot = visibleSlots.find(s => s.id === activeSlotId) || visibleSlots[0] || slots[0];
+  const activeSlot = slots.find(s => s.id === activeSlotId) || slots[0];
+  const visibleSlots = useMemo(
+    () => activeSlot ? [activeSlot] : [],
+    [activeSlot],
+  );
   const activePos = positions.find(p => p.portfolioSlotId === (activeSlot?.id || '')) || positions[0];
   const activePair = SUPPORTED_PAIRS.find(p => p.symbol === (activePos?.pair || 'EURUSD')) || SUPPORTED_PAIRS[0];
 
-  // Risk budget comes directly from the portfolio slot
-  const riskBudget = activeSlot?.riskBucket || 0;
+  // Risk sizing uses the risk AMOUNT. The UI Risk Bucket is the selected
+  // framework's allocation value.
+  const riskBudget = activeSlot?.riskAmount || 0;
 
   const zoneWidthPips = activePos ? Math.abs(activePos.lastEntry - activePos.firstEntry) / activePair.pipSize : 0;
   const targetPips = activePos ? Math.abs(activePos.targetPrice - activePos.firstEntry) / activePair.pipSize : 0;
 
   const autoResult = useMemo(() => {
-    if (!activePos || !activeSlot) return { totalLot: 0.01, perEntryLot: 0.01, distribution: [0.01] };
+    if (!activePos || !activeSlot) {
+      return {
+        totalLot: 0,
+        perEntryLot: 0,
+        distribution: [0],
+        riskDistancePips: 0,
+        supportedEntries: 0,
+        warning: null,
+      };
+    }
     return smartAutoLot({
       riskBudget,
       entryCount: activePos.entryCount,
@@ -268,10 +354,12 @@ export default function DynamicRiskEngineWorkspace() {
       style: activeSlot.style,
       mode: activePos.autoLotMode,
       targetPips,
+      rrMax: activeSlot.rrMax,
       entryTF: activePos.entryTF,
       setupTF: activePos.setupTF,
+      setup: activePos.setup,
     });
-  }, [riskBudget, activePos?.entryCount, zoneWidthPips, activePair, activeSlot?.style, activePos?.autoLotMode, targetPips, activePos?.entryTF, activePos?.setupTF]);
+  }, [riskBudget, activePos?.entryCount, zoneWidthPips, activePair, activeSlot?.style, activeSlot?.rrMax, activePos?.autoLotMode, targetPips, activePos?.entryTF, activePos?.setupTF, activePos?.setup]);
 
   const entryPlan = useMemo(() => {
     if (!activePos) return [];
@@ -316,10 +404,14 @@ export default function DynamicRiskEngineWorkspace() {
   }, [entryPlan, riskBudget]);
 
   const pipsFromCurrent = useMemo(() => {
-    if (!activePos) return { toTp: 0, toLiq: 0 };
+    if (!activePos || activePos.currentPrice <= 0) return { toTp: 0, toLiq: 0 };
     return {
-      toTp: Math.abs(activePos.currentPrice - activePos.targetPrice) / activePair.pipSize,
-      toLiq: liquidation > 0 ? Math.abs(activePos.currentPrice - liquidation) / activePair.pipSize : 0,
+      toTp: activePos.targetPrice > 0
+        ? Math.abs(activePos.currentPrice - activePos.targetPrice) / activePair.pipSize
+        : 0,
+      toLiq: liquidation > 0
+        ? Math.abs(activePos.currentPrice - liquidation) / activePair.pipSize
+        : 0,
     };
   }, [activePos?.currentPrice, activePos?.targetPrice, liquidation, activePair]);
 
@@ -337,9 +429,22 @@ export default function DynamicRiskEngineWorkspace() {
       const pos = positions.find(p => p.portfolioSlotId === slot.id);
       if (!pos) continue;
       const pc = SUPPORTED_PAIRS.find(p => p.symbol === pos.pair) || SUPPORTED_PAIRS[0];
-      const posRisk = slot.riskBucket;
+      const posRisk = slot.riskAmount;
       const zone = Math.abs(pos.lastEntry - pos.firstEntry) / pc.pipSize;
-      const ar = smartAutoLot({ riskBudget: posRisk, entryCount: pos.entryCount, zoneWidthPips: zone > 0 ? zone : 30, pair: pc, style: slot.style, mode: pos.autoLotMode, entryTF: pos.entryTF, setupTF: pos.setupTF });
+      const posTargetPips = Math.abs(pos.targetPrice - pos.firstEntry) / pc.pipSize;
+      const ar = smartAutoLot({
+        riskBudget: posRisk,
+        entryCount: pos.entryCount,
+        zoneWidthPips: zone > 0 ? zone : 30,
+        pair: pc,
+        style: slot.style,
+        mode: pos.autoLotMode,
+        targetPips: posTargetPips,
+        rrMax: slot.rrMax,
+        entryTF: pos.entryTF,
+        setupTF: pos.setupTF,
+        setup: pos.setup,
+      });
       const hasCustom = pos.customEntries.length === pos.entryCount;
       const plan = generateEntries({
         firstEntry: pos.firstEntry, lastEntry: pos.lastEntry, count: pos.entryCount,
@@ -416,31 +521,47 @@ export default function DynamicRiskEngineWorkspace() {
   }, [showChart, activePos?.pair, activePos?.entryTF]);
 
   // ============================================================
-  // LIVE PRICE FEED — via Next.js API route
+  // LIVE PRICE FEED — BiQuote via Next.js API route
   // ============================================================
   useEffect(() => {
-    if (!livePriceEnabled || !activePos || manualPriceOverride.current) {
+    if (!storageReady || !livePriceEnabled || !activePos || !activeSlot) {
       if (livePriceIntervalRef.current) {
         clearInterval(livePriceIntervalRef.current);
         livePriceIntervalRef.current = null;
       }
+      if (!livePriceEnabled) setLivePriceStatus('idle');
       return;
     }
 
+    const slotId = activeSlot.id;
+    const pair = activePos.pair;
+
     const fetchAndUpdate = async () => {
+      const requestId = ++priceRequestIdRef.current;
       setLivePriceStatus('fetching');
-      const price = await fetchLivePrice(activePos.pair);
-      if (price !== null) {
+      setLivePriceError(null);
+
+      const quote = await fetchLivePrice(pair);
+
+      // Ignore a response from an older pair/slot request.
+      if (requestId !== priceRequestIdRef.current) return;
+
+      if (quote && !quote.stale) {
         setLivePriceStatus('connected');
+        setLivePriceProvider(quote.provider);
         setLastPriceUpdate(Date.now());
-        setPositions(prev => prev.map(p => {
-          if (p.portfolioSlotId === (activeSlot?.id || '')) {
-            return { ...p, currentPrice: price };
-          }
-          return p;
-        }));
+        setPositions(prev => prev.map(p =>
+          p.portfolioSlotId === slotId && p.pair === pair
+            ? { ...p, currentPrice: quote.price }
+            : p,
+        ));
       } else {
         setLivePriceStatus('error');
+        setLivePriceError(
+          quote?.stale
+            ? 'BiQuote returned a stale quote. Current Price was not overwritten.'
+            : `No current BiQuote quote is available for ${pair}.`,
+        );
       }
     };
 
@@ -448,164 +569,128 @@ export default function DynamicRiskEngineWorkspace() {
     livePriceIntervalRef.current = setInterval(fetchAndUpdate, 5000);
 
     return () => {
+      priceRequestIdRef.current += 1;
       if (livePriceIntervalRef.current) {
         clearInterval(livePriceIntervalRef.current);
         livePriceIntervalRef.current = null;
       }
     };
-  }, [livePriceEnabled, activePos?.pair, activeSlot?.id]);
-
-  // Reset manual override when pair changes
-  useEffect(() => {
-    manualPriceOverride.current = false;
-  }, [activePos?.pair]);
+  }, [storageReady, livePriceEnabled, activePos?.pair, activeSlot?.id]);
 
   // ============================================================
   // AUTO TARGET PRICE FROM STYLE R:R
   // ============================================================
   useEffect(() => {
-    if (!autoTP || !activePos || !activeSlot) return;
+    if (!storageReady || !autoTP || !activePos || !activeSlot) return;
+    if (activePos.firstEntry <= 0 || activePos.lastEntry <= 0) return;
+
     const newTarget = calculateAutoTP({
       firstEntry: activePos.firstEntry,
       lastEntry: activePos.lastEntry,
       direction: activePos.direction,
       style: activeSlot.style,
       rrMin: activeSlot.rrMin,
+      rrMax: activeSlot.rrMax,
       pair: activePair,
-      currentPrice: activePos.currentPrice,
+      currentPrice: activePos.currentPrice > 0 ? activePos.currentPrice : undefined,
     });
+
     const diff = Math.abs(newTarget - activePos.targetPrice);
     if (diff > activePair.pipSize * 0.5) {
-      setPositions(prev => prev.map(p => {
-        if (p.portfolioSlotId === activeSlot.id) {
-          return { ...p, targetPrice: newTarget };
-        }
-        return p;
-      }));
+      setPositions(prev => prev.map(p =>
+        p.portfolioSlotId === activeSlot.id
+          ? { ...p, targetPrice: newTarget }
+          : p,
+      ));
     }
-  }, [autoTP, activePos?.firstEntry, activePos?.lastEntry, activePos?.direction, activeSlot?.rrMin, activeSlot?.id, activeSlot?.style, activePair]);
+  }, [
+    storageReady,
+    autoTP,
+    activePos?.firstEntry,
+    activePos?.lastEntry,
+    activePos?.direction,
+    activeSlot?.rrMin,
+    activeSlot?.rrMax,
+    activeSlot?.id,
+    activeSlot?.style,
+    activePair,
+  ]);
 
   // ============================================================
-  // AUTO-SWITCH STYLE BASED ON TF & TARGET MISMATCH
+  // AUTO-SWITCH STYLE — one classifier, not competing effects
   // ============================================================
   const [styleSwitchNotice, setStyleSwitchNotice] = useState<string | null>(null);
 
-  const entryTFStyleMap = useMemo(() => {
-    const map: Record<string, TradingStyle[]> = {};
-    for (const slot of slots) {
-      for (const tf of slot.entryTimeframes) {
-        if (!map[tf]) map[tf] = [];
-        if (!map[tf].includes(slot.style)) map[tf].push(slot.style);
-      }
-    }
-    return map;
-  }, [slots]);
-
-  const setupTFStyleMap = useMemo(() => {
-    const map: Record<string, TradingStyle[]> = {};
-    for (const slot of slots) {
-      for (const tf of slot.setupTimeframes) {
-        if (!map[tf]) map[tf] = [];
-        if (!map[tf].includes(slot.style)) map[tf].push(slot.style);
-      }
-    }
-    return map;
-  }, [slots]);
-
-  function findBestStyleForTFs(entryTF: Timeframe, setupTF: Timeframe): TradingStyle | null {
-    const entryStyles = entryTFStyleMap[entryTF] || [];
-    const setupStyles = setupTFStyleMap[setupTF] || [];
-    const common = entryStyles.filter(s => setupStyles.includes(s));
-    if (common.length > 0) return common[0];
-    if (entryStyles.length > 0) return entryStyles[0];
-    return null;
-  }
-
-  function findBestStyleForRR(rr: number): TradingStyle | null {
-    for (const slot of slots) {
-      if (rr >= slot.rrMin && rr <= slot.rrMax) return slot.style;
-    }
-    const sorted = [...slots].sort((a, b) => b.rrMax - a.rrMax);
-    if (sorted.length > 0 && rr > sorted[0].rrMax) return sorted[0].style;
-    return null;
-  }
-
   function migrateToSlot(targetSlot: PortfolioSlot, sourcePos: Position) {
-    if (!activeSlotIds.includes(targetSlot.id)) {
-      setActiveSlotIds(prev => [...prev, targetSlot.id]);
-    }
+    setActiveSlotIds([targetSlot.id]);
     setActiveSlotId(targetSlot.id);
+
     setPositions(prev => prev.map(p => {
-      if (p.portfolioSlotId === targetSlot.id) {
-        return {
-          ...p,
-          pair: sourcePos.pair,
-          direction: sourcePos.direction,
-          entryTF: sourcePos.entryTF,
-          setupTF: sourcePos.setupTF,
-          setup: sourcePos.setup,
-          firstEntry: sourcePos.firstEntry,
-          lastEntry: sourcePos.lastEntry,
-          entryCount: sourcePos.entryCount,
-          targetPrice: sourcePos.targetPrice,
-          currentPrice: sourcePos.currentPrice,
-          customEntries: sourcePos.customEntries,
-        };
-      }
-      return p;
+      if (p.portfolioSlotId !== targetSlot.id) return p;
+
+      return {
+        ...p,
+        pair: sourcePos.pair,
+        direction: sourcePos.direction,
+        style: targetSlot.style,
+        entryTF: sourcePos.entryTF,
+        setupTF: sourcePos.setupTF,
+        setup: sourcePos.setup,
+        firstEntry: sourcePos.firstEntry,
+        lastEntry: sourcePos.lastEntry,
+        entryCount: sourcePos.entryCount,
+        lotPerEntry: sourcePos.lotPerEntry,
+        useAutoLot: sourcePos.useAutoLot,
+        autoLotMode: sourcePos.autoLotMode,
+        targetPrice: sourcePos.targetPrice,
+        currentPrice: sourcePos.currentPrice,
+        customEntries: sourcePos.customEntries,
+      };
     }));
   }
 
-  // Auto-switch when Entry TF or Setup TF doesn't match current style
   useEffect(() => {
-    if (!activePos || !activeSlot) return;
-    const currentStyle = activeSlot.style;
-    const entryTF = activePos.entryTF;
-    const setupTF = activePos.setupTF;
-    const entryMatches = activeSlot.entryTimeframes.includes(entryTF);
-    const setupMatches = activeSlot.setupTimeframes.includes(setupTF);
+    if (!storageReady || !activePos || !activeSlot) return;
+    if (activePos.firstEntry <= 0 || activePos.lastEntry <= 0) return;
 
-    if (!entryMatches || !setupMatches) {
-      const bestStyle = findBestStyleForTFs(entryTF, setupTF);
-      if (bestStyle && bestStyle !== currentStyle) {
-        const targetSlot = slots.find(s => s.style === bestStyle);
-        if (targetSlot) {
-          migrateToSlot(targetSlot, activePos);
-          setStyleSwitchNotice(`Auto-switched to ${bestStyle} (${entryTF}/${setupTF} matches ${bestStyle} parameters)`);
-          setTimeout(() => setStyleSwitchNotice(null), 4000);
-        }
-      }
-    }
-  }, [activePos?.entryTF, activePos?.setupTF]);
+    const result = classifyTradingStyle({
+      slots,
+      currentStyle: activeSlot.style,
+      entryTF: activePos.entryTF,
+      setupTF: activePos.setupTF,
+      firstEntry: activePos.firstEntry,
+      lastEntry: activePos.lastEntry,
+      targetPrice: activePos.targetPrice,
+      pair: activePair,
+      // Auto target is an output of the selected style. Manual target is an
+      // input and is therefore allowed to influence the style classification.
+      useTarget: !autoTP,
+    });
 
-  // Auto-switch when target price implies R:R outside current style's range
-  useEffect(() => {
-    if (autoTP || !activePos || !activeSlot) return;
-    const avgEntry = activePos.entryCount === 1
-      ? activePos.firstEntry
-      : (activePos.firstEntry + activePos.lastEntry) / 2;
-    const zoneWidth = Math.abs(activePos.lastEntry - activePos.firstEntry);
-    const riskPips = Math.max(zoneWidth / activePair.pipSize, 5);
-    const targetDist = Math.abs(activePos.targetPrice - avgEntry) / activePair.pipSize;
-    const impliedRR = riskPips > 0 ? targetDist / riskPips : 0;
+    if (result.style === activeSlot.style) return;
 
-    if (impliedRR <= 0) return;
+    const targetSlot = slots.find(slot => slot.style === result.style);
+    if (!targetSlot) return;
 
-    const currentMax = activeSlot.rrMax;
-    const currentMin = activeSlot.rrMin;
+    migrateToSlot(targetSlot, activePos);
+    setStyleSwitchNotice(
+      `Auto-switched to ${result.style} (${result.reason})`,
+    );
 
-    if (impliedRR > currentMax || impliedRR < currentMin * 0.5) {
-      const bestStyle = findBestStyleForRR(impliedRR);
-      if (bestStyle && bestStyle !== activeSlot.style) {
-        const targetSlot = slots.find(s => s.style === bestStyle);
-        if (targetSlot) {
-          migrateToSlot(targetSlot, activePos);
-          setStyleSwitchNotice(`Auto-switched to ${bestStyle} (R:R 1:${impliedRR.toFixed(1)} fits ${bestStyle} range 1:${targetSlot.rrMin}-1:${targetSlot.rrMax})`);
-          setTimeout(() => setStyleSwitchNotice(null), 4000);
-        }
-      }
-    }
-  }, [autoTP, activePos?.targetPrice, activePos?.firstEntry, activePos?.lastEntry, activeSlot?.rrMax, activeSlot?.rrMin]);
+    const timeout = setTimeout(() => setStyleSwitchNotice(null), 4000);
+    return () => clearTimeout(timeout);
+  }, [
+    storageReady,
+    autoTP,
+    activePos?.entryTF,
+    activePos?.setupTF,
+    activePos?.firstEntry,
+    activePos?.lastEntry,
+    activePos?.targetPrice,
+    activePair,
+    activeSlot?.style,
+    slots,
+  ]);
 
   // ============================================================
   // ACTIONS
@@ -615,20 +700,84 @@ export default function DynamicRiskEngineWorkspace() {
     setPositions(prev => prev.map(p => p.portfolioSlotId === activeSlot.id ? { ...p, ...updates } : p));
   }
 
-  function handlePairChange(newPair: string) {
+  async function handlePairChange(newPair: string) {
     const pairConfig = SUPPORTED_PAIRS.find(p => p.symbol === newPair);
     if (!pairConfig || !activeSlot || !activePos) return;
-    const defaults = DEFAULT_PRICES[newPair] || { entry: 1.0, target: 0.99, current: 1.0 };
-    const zoneOffset = pairConfig.pipSize * (activeSlot.style === 'Scalp' ? 10 : activeSlot.style === 'Day' ? 30 : 80);
-    const targetDir = activePos.direction === 'Sell' ? defaults.target : defaults.entry + (defaults.entry - defaults.target);
-    updatePos({
-      pair: newPair,
-      firstEntry: defaults.entry,
-      lastEntry: defaults.entry + (activePos.direction === 'Sell' ? zoneOffset : -zoneOffset),
-      targetPrice: targetDir,
-      currentPrice: defaults.current,
-      customEntries: [],
+
+    const slotId = activeSlot.id;
+    const direction = activePos.direction;
+    const style = activeSlot.style;
+    const rrMin = activeSlot.rrMin;
+    const rrMax = activeSlot.rrMax;
+    const requestId = ++priceRequestIdRef.current;
+
+    setLivePriceStatus('fetching');
+    setLivePriceError(null);
+
+    // Clear price-dependent values immediately so a quote from the previous
+    // instrument is never presented as the new pair's current price.
+    setPositions(prev => prev.map(p =>
+      p.portfolioSlotId === slotId
+        ? {
+            ...p,
+            pair: newPair,
+            firstEntry: 0,
+            lastEntry: 0,
+            targetPrice: 0,
+            currentPrice: 0,
+            customEntries: [],
+          }
+        : p,
+    ));
+
+    const quote = await fetchLivePrice(newPair);
+    if (requestId !== priceRequestIdRef.current) return;
+
+    if (!quote || quote.stale) {
+      setLivePriceStatus('error');
+      setLivePriceError(
+        quote?.stale
+          ? `BiQuote returned a stale ${newPair} quote.`
+          : `BiQuote returned no current quote for ${newPair}.`,
+      );
+      return;
+    }
+
+    const firstEntry = Number(quote.price.toFixed(pairConfig.digits));
+    const zonePips = DEFAULT_ZONE_PIPS[style];
+    const lastEntry = Number(
+      (
+        firstEntry +
+        (direction === 'Sell' ? 1 : -1) * zonePips * pairConfig.pipSize
+      ).toFixed(pairConfig.digits),
+    );
+    const targetPrice = calculateAutoTP({
+      firstEntry,
+      lastEntry,
+      direction,
+      style,
+      rrMin,
+      rrMax,
+      pair: pairConfig,
+      currentPrice: quote.price,
     });
+
+    setPositions(prev => prev.map(p =>
+      p.portfolioSlotId === slotId && p.pair === newPair
+        ? {
+            ...p,
+            pair: newPair,
+            firstEntry,
+            lastEntry,
+            targetPrice,
+            currentPrice: quote.price,
+            customEntries: [],
+          }
+        : p,
+    ));
+    setLivePriceStatus('connected');
+    setLivePriceProvider(quote.provider);
+    setLastPriceUpdate(Date.now());
   }
 
   function updateEntryField(index: number, field: 'price' | 'lot', value: number) {
@@ -640,18 +789,9 @@ export default function DynamicRiskEngineWorkspace() {
     updatePos({ customEntries: current, useAutoLot: false });
   }
 
-  function toggleSlotActive(slotId: string) {
-    setActiveSlotIds(prev => {
-      if (prev.includes(slotId)) {
-        const updated = prev.filter(id => id !== slotId);
-        if (slotId === activeSlotId && updated.length > 0) {
-          setActiveSlotId(updated[0]);
-        }
-        return updated;
-      } else {
-        return [...prev, slotId];
-      }
-    });
+  function selectStyle(slotId: string) {
+    setActiveSlotId(slotId);
+    setActiveSlotIds([slotId]);
   }
 
   function resetPosition() {
@@ -665,10 +805,43 @@ export default function DynamicRiskEngineWorkspace() {
     setFrameworkParams(prev => ({ ...prev, [key]: value }));
   }
 
+  function allocationPercentKey(style: TradingStyle): keyof FrameworkParams {
+    if (style === 'Scalp') return 'scalpAllocationPercent';
+    if (style === 'Day') return 'dayAllocationPercent';
+    if (style === 'Swing') return 'swingAllocationPercent';
+    return 'positionAllocationPercent';
+  }
+
+  function riskPercentKey(style: TradingStyle): keyof FrameworkParams {
+    if (style === 'Scalp') return 'scalpRiskPercent';
+    if (style === 'Day') return 'dayRiskPercent';
+    if (style === 'Swing') return 'swingRiskPercent';
+    return 'positionRiskPercent';
+  }
+
+  function weightKey(style: TradingStyle): keyof FrameworkParams {
+    if (style === 'Scalp') return 'scalpWeight';
+    if (style === 'Day') return 'dayWeight';
+    if (style === 'Swing') return 'swingWeight';
+    return 'positionWeight';
+  }
+
+  function updateAllocationPercent(style: TradingStyle, displayedPercent: number) {
+    const weight = Math.max(Number(frameworkParams[weightKey(style)]) || 1, 0.1);
+    const underlyingPercent = Math.max(displayedPercent, 0) / weight;
+    updateParam(allocationPercentKey(style), underlyingPercent);
+  }
+
+  function updateRiskPercent(style: TradingStyle, displayedPercent: number) {
+    const appetite = Math.max(frameworkParams.riskAppetite || 1, 0.1);
+    const underlyingPercent = Math.max(displayedPercent, 0) / appetite;
+    updateParam(riskPercentKey(style), underlyingPercent);
+  }
+
   // Presets
   function savePreset() {
     const name = presetName.trim() || ('Preset ' + (presets.length + 1));
-    const p: Preset = { id: genId(), name, capital: totalCapital, positions, frameworkParams, activeSlotIds, timestamp: Date.now() };
+    const p: Preset = { id: genId(), name, capital: totalCapital, positions, frameworkParams, activeSlotIds: [activeSlotId], activeSlotId, timestamp: Date.now() };
     const updated = [p, ...presets];
     setPresets(updated);
     saveToStorage('riskPresets_v7', updated);
@@ -677,7 +850,7 @@ export default function DynamicRiskEngineWorkspace() {
   function quickSavePreset() {
     if (!activeSlot || !activePos) return;
     const name = activeSlot.name + ' ' + (SUPPORTED_PAIRS.find(p => p.symbol === activePos.pair)?.label || '') + ' - ' + new Date().toLocaleTimeString();
-    const p: Preset = { id: genId(), name, capital: totalCapital, positions, frameworkParams, activeSlotIds, timestamp: Date.now() };
+    const p: Preset = { id: genId(), name, capital: totalCapital, positions, frameworkParams, activeSlotIds: [activeSlotId], activeSlotId, timestamp: Date.now() };
     const updated = [p, ...presets];
     setPresets(updated);
     saveToStorage('riskPresets_v7', updated);
@@ -685,8 +858,12 @@ export default function DynamicRiskEngineWorkspace() {
   function loadPreset(p: Preset) {
     setTotalCapital(p.capital);
     setPositions(p.positions);
-    if (p.frameworkParams) setFrameworkParams(p.frameworkParams);
-    if (p.activeSlotIds) setActiveSlotIds(p.activeSlotIds);
+    if (p.frameworkParams) {
+      setFrameworkParams({ ...DEFAULT_FRAMEWORK_PARAMS, ...p.frameworkParams });
+    }
+    const presetSlotId = p.activeSlotId || p.activeSlotIds?.[0] || 'scalp';
+    setActiveSlotId(presetSlotId);
+    setActiveSlotIds([presetSlotId]);
     setActiveTab('engine');
   }
   function deletePreset(id: string) {
@@ -764,7 +941,7 @@ export default function DynamicRiskEngineWorkspace() {
         <div>
           <h1 className="text-lg font-bold tracking-tight text-white">DYNAMIC RISK ENGINE</h1>
           <p className="text-[10px] text-gray-600 mt-0.5">
-            4-Style Framework | {visibleSlots.length} active | Auto-persist enabled
+            4-Style Framework | {activeSlot.name} selected | Auto-persist enabled
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -872,19 +1049,19 @@ export default function DynamicRiskEngineWorkspace() {
               </div>
             )}
 
-            {/* Style Selector */}
+            {/* Style Selector — one selected framework at a time */}
             <div className="mb-3 flex items-center gap-2 flex-wrap">
-              <span className="text-[9px] text-gray-600 uppercase">Active:</span>
+              <span className="text-[9px] text-gray-600 uppercase">Style:</span>
               {slots.map(slot => {
-                const isActive = activeSlotIds.includes(slot.id);
+                const isActive = slot.id === activeSlotId;
                 return (
                   <button
                     key={slot.id}
-                    onClick={() => toggleSlotActive(slot.id)}
-                    className={"flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold border transition-all " + (isActive ? "border-opacity-50 bg-opacity-20" : "border-gray-800/30 text-gray-700 opacity-50")}
+                    onClick={() => selectStyle(slot.id)}
+                    className={"flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold border transition-all " + (isActive ? "border-opacity-50 bg-opacity-20" : "border-gray-800/30 text-gray-600 hover:text-gray-300")}
                     style={isActive ? { borderColor: slot.color, backgroundColor: slot.color + '15', color: slot.color } : {}}
                   >
-                    {isActive ? <Eye size={9} /> : <EyeOff size={9} />}
+                    {isActive ? <CheckCircle size={9} /> : <span className="w-[9px]" />}
                     {slot.name}
                   </button>
                 );
@@ -915,8 +1092,12 @@ export default function DynamicRiskEngineWorkspace() {
                         <span className="text-white font-bold">{"$" + slot.allocation.toFixed(0) + " (" + slot.allocationPercent + "%)"}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Risk:</span>
-                        <span className="text-red-400 font-bold">{"$" + slot.riskBucket.toFixed(0) + " (" + slot.riskPercent + "%)"}</span>
+                        <span>Risk Bucket:</span>
+                        <span className="text-cyan-400 font-bold">{"$" + slot.allocation.toFixed(0)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Risk Amount:</span>
+                        <span className="text-red-400 font-bold">{"$" + slot.riskAmount.toFixed(2) + " (" + slot.riskPercent + "%)"}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>R:R:</span>
@@ -933,11 +1114,53 @@ export default function DynamicRiskEngineWorkspace() {
               })}
             </div>
 
+            {/* Direct percentage controls for the selected framework */}
+            <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="bg-[#0d0d14] rounded-lg p-2 border border-gray-800/30">
+                <label className="text-[8px] text-gray-600 uppercase block mb-1">Allocation %</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={activeSlot.allocationPercent}
+                  onChange={(e) => updateAllocationPercent(activeSlot.style, Number(e.target.value))}
+                  className="w-full bg-[#080810] border border-cyan-800/30 rounded px-2 py-1.5 text-cyan-400 text-sm font-bold focus:border-cyan-500 focus:outline-none"
+                />
+              </div>
+              <div className="bg-[#0d0d14] rounded-lg p-2 border border-gray-800/30">
+                <span className="text-[8px] text-gray-600 uppercase block mb-1">Risk Bucket</span>
+                <span className="text-sm text-cyan-400 font-bold">{"$" + activeSlot.allocation.toFixed(2)}</span>
+                <span className="text-[7px] text-gray-700 block">Same as portfolio allocation value</span>
+              </div>
+              <div className="bg-[#0d0d14] rounded-lg p-2 border border-gray-800/30">
+                <label className="text-[8px] text-gray-600 uppercase block mb-1">Risk %</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={activeSlot.riskPercent}
+                  onChange={(e) => updateRiskPercent(activeSlot.style, Number(e.target.value))}
+                  className="w-full bg-[#080810] border border-red-800/30 rounded px-2 py-1.5 text-red-400 text-sm font-bold focus:border-red-500 focus:outline-none"
+                />
+              </div>
+              <div className="bg-[#0d0d14] rounded-lg p-2 border border-gray-800/30">
+                <span className="text-[8px] text-gray-600 uppercase block mb-1">Risk Amount</span>
+                <span className="text-sm text-red-400 font-bold">{"$" + activeSlot.riskAmount.toFixed(2)}</span>
+                <span className="text-[7px] text-gray-700 block">Amount Auto Lot is allowed to risk</span>
+              </div>
+            </div>
+
             {/* Capital breakdown bar */}
-            <div className="mt-3 flex gap-0.5 h-2 rounded-full overflow-hidden">
-              {visibleSlots.map(slot => (
-                <div key={slot.id} className="transition-all" style={{ flex: slot.allocation, backgroundColor: slot.color + '80' }} />
-              ))}
+            <div className="mt-3 h-2 rounded-full overflow-hidden bg-[#0d0d14]">
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: Math.min(activeSlot.allocationPercent, 100) + '%',
+                  backgroundColor: activeSlot.color + '80',
+                }}
+              />
             </div>
             <div className="flex justify-between mt-1">
               <span className="text-[8px] text-gray-700">{"$" + overview.totalAllocation.toFixed(0) + " allocated (" + (overview.totalAllocation / totalCapital * 100).toFixed(0) + "%)"}</span>
@@ -952,7 +1175,7 @@ export default function DynamicRiskEngineWorkspace() {
                 <span className="w-3 h-3 rounded-full" style={{ backgroundColor: activeSlot.color }} />
                 <h2 className="text-[10px] text-white font-bold uppercase tracking-widest">{activeSlot.name}</h2>
                 <span className="text-[9px] px-2 py-0.5 rounded bg-[#0d0d14] border border-gray-800/30 text-gray-500">
-                  {"Risk: $" + riskBudget.toFixed(0) + " (" + activeSlot.riskPercent + "%) | R:R 1:" + activeSlot.rrMin + "-1:" + activeSlot.rrMax}
+                  {"Bucket: $" + activeSlot.allocation.toFixed(0) + " | Risk: " + activeSlot.riskPercent + "% = $" + riskBudget.toFixed(2) + " | R:R 1:" + activeSlot.rrMin + "-1:" + activeSlot.rrMax}
                 </span>
               </div>
               <button onClick={resetPosition} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold border border-gray-800/30 text-gray-600 hover:text-yellow-400 hover:border-yellow-700/30 transition-all">
@@ -1009,21 +1232,31 @@ export default function DynamicRiskEngineWorkspace() {
                     {livePriceEnabled && (
                       <span className={"w-1.5 h-1.5 rounded-full " + (livePriceStatus === 'connected' ? "bg-green-400 animate-pulse" : livePriceStatus === 'fetching' ? "bg-yellow-400 animate-pulse" : livePriceStatus === 'error' ? "bg-red-400" : "bg-gray-600")} />
                     )}
-                    <button onClick={() => { setLivePriceEnabled(!livePriceEnabled); if (livePriceEnabled) manualPriceOverride.current = false; }} className={"text-[8px] font-bold px-1.5 py-0.5 rounded border transition-all " + (livePriceEnabled ? "bg-green-950/30 border-green-700/40 text-green-400" : "bg-[#0d0d14] border-gray-800/30 text-gray-600")}>
+                    <button
+                      onClick={() => setLivePriceEnabled(prev => !prev)}
+                      className={"text-[8px] font-bold px-1.5 py-0.5 rounded border transition-all " + (livePriceEnabled ? "bg-green-950/30 border-green-700/40 text-green-400" : "bg-[#0d0d14] border-gray-800/30 text-gray-600")}
+                    >
                       {livePriceEnabled ? "Live" : "Manual"}
                     </button>
                   </div>
                 </div>
                 <input
-                  type="number" step={activePair.pipSize} value={activePos.currentPrice}
-                  onChange={(e) => { manualPriceOverride.current = true; updatePos({ currentPrice: Number(e.target.value) }); }}
-                  onFocus={() => { manualPriceOverride.current = true; }}
-                  className={"w-full bg-[#0d0d14] border rounded-lg p-2 text-sm font-bold focus:outline-none " + (livePriceEnabled && !manualPriceOverride.current ? "border-green-700/40 text-green-400 focus:border-green-500" : "border-yellow-700/40 text-yellow-400 focus:border-yellow-500")}
+                  type="number"
+                  step={activePair.pipSize}
+                  value={activePos.currentPrice}
+                  readOnly={livePriceEnabled}
+                  onChange={(e) => {
+                    if (!livePriceEnabled) updatePos({ currentPrice: Number(e.target.value) });
+                  }}
+                  className={"w-full bg-[#0d0d14] border rounded-lg p-2 text-sm font-bold focus:outline-none " + (livePriceEnabled ? "border-green-700/40 text-green-400 focus:border-green-500 cursor-default" : "border-yellow-700/40 text-yellow-400 focus:border-yellow-500")}
                 />
                 {livePriceEnabled && lastPriceUpdate > 0 && (
-                  <span className="text-[7px] text-gray-700 mt-0.5 block" title="Yahoo Finance mid-price. May differ 1-3 pips from broker bid/ask.">
-                    {"Updated " + Math.round((Date.now() - lastPriceUpdate) / 1000) + "s ago · Mid"}
+                  <span className="text-[7px] text-gray-700 mt-0.5 block" title="Risk Engine current price is supplied by BiQuote.">
+                    {livePriceProvider + " · refreshed " + Math.round((Date.now() - lastPriceUpdate) / 1000) + "s ago"}
                   </span>
+                )}
+                {livePriceError && (
+                  <span className="text-[7px] text-red-500 mt-0.5 block">{livePriceError}</span>
                 )}
               </div>
             </div>
@@ -1074,6 +1307,11 @@ export default function DynamicRiskEngineWorkspace() {
                   <span className="text-[8px] text-gray-700 ml-2">
                     {activePos.autoLotMode === 'accumulated' ? "Total lot distributed by weight" : "Equal lot per entry"}
                   </span>
+                </div>
+              )}
+              {activePos.useAutoLot && autoResult.warning && (
+                <div className="rounded-lg p-2 bg-yellow-950/20 border border-yellow-700/30 text-[9px] text-yellow-400">
+                  {autoResult.warning}
                 </div>
               )}
 
@@ -1137,7 +1375,7 @@ export default function DynamicRiskEngineWorkspace() {
                         </td>
                         <td className="px-2 py-2 text-gray-500">{e.distFromFirst.toFixed(0) + "p"}</td>
                         <td className="px-2 py-1">
-                          <input type="number" step={0.01} min={0.01} value={e.lot} onChange={(ev) => updateEntryField(i, 'lot', Number(ev.target.value))} className="w-16 bg-transparent border border-cyan-800/40 rounded px-1.5 py-1 text-cyan-400 text-[11px] font-bold focus:border-cyan-500 focus:outline-none hover:border-cyan-600" />
+                          <input type="number" step={0.01} min={0} value={e.lot} onChange={(ev) => updateEntryField(i, 'lot', Number(ev.target.value))} className="w-16 bg-transparent border border-cyan-800/40 rounded px-1.5 py-1 text-cyan-400 text-[11px] font-bold focus:border-cyan-500 focus:outline-none hover:border-cyan-600" />
                         </td>
                         <td className="px-2 py-2">{e.cumulativeLots.toFixed(2)}</td>
                         <td className="px-2 py-2">{e.avgEntry.toFixed(activePair.digits)}</td>
@@ -1159,6 +1397,15 @@ export default function DynamicRiskEngineWorkspace() {
                 {(() => {
                   const prices = entryPlan.map(e => e.price);
                   const allPrices = [...prices, activePos.targetPrice, liquidation, activePos.currentPrice].filter(p => p > 0);
+
+                  if (allPrices.length === 0) {
+                    return (
+                      <div className="h-32 flex items-center justify-center text-[9px] text-gray-600">
+                        Waiting for a valid BiQuote price and trade plan...
+                      </div>
+                    );
+                  }
+
                   const minP = Math.min(...allPrices);
                   const maxP = Math.max(...allPrices);
                   const range = maxP - minP || 1;
