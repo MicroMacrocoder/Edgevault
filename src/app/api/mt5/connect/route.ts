@@ -4,6 +4,11 @@ import {
   getAuthenticatedUser,
   getSupabaseAdmin,
 } from "@/lib/mt5Hosted";
+import {
+  getMt5Broker,
+  isMt5AccountType,
+  isMt5BrokerServer,
+} from "@/lib/mt5ServerCatalog";
 
 export const dynamic = "force-dynamic";
 
@@ -27,9 +32,29 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    const accountType = String(body?.accountType ?? "").trim().toLowerCase();
+    const brokerId = String(body?.broker ?? "").trim().toLowerCase();
     const login = normalizeLogin(body?.login);
     const server = normalizeServer(body?.server);
     const password = String(body?.password ?? "");
+
+    if (!isMt5AccountType(accountType)) {
+      return NextResponse.json(
+        { success: false, message: "Select Broker or Prop Firm." },
+        { status: 400 },
+      );
+    }
+
+    const broker = getMt5Broker(brokerId);
+    if (!broker || broker.accountType !== accountType) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Select a supported ${accountType === "prop_firm" ? "prop firm" : "broker"}.`,
+        },
+        { status: 400 },
+      );
+    }
 
     if (!/^\d{4,20}$/.test(login)) {
       return NextResponse.json(
@@ -38,9 +63,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!server) {
+    if (!server || !isMt5BrokerServer(brokerId, server)) {
       return NextResponse.json(
-        { success: false, message: "Exact MT5 server is required." },
+        { success: false, message: `Select a valid ${broker.name} MT5 server.` },
         { status: 400 },
       );
     }
@@ -146,6 +171,8 @@ export async function POST(request: NextRequest) {
       accountId,
       jobId: job.id,
       status: "connecting",
+      accountType,
+      broker: { id: broker.id, name: broker.name },
       message: "Connecting to MT5 on the hosted EdgeVault worker...",
     });
   } catch (error: any) {

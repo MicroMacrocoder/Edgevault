@@ -3,9 +3,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  MT5_BROKERS,
+  type Mt5AccountType,
+} from "@/lib/mt5ServerCatalog";
 
 type MT5ConnectWorkspaceProps = {
   onBack?: () => void;
+};
+
+type Mt5Position = {
+  ticket: number | string;
+  symbol: string;
+  side: "buy" | "sell" | string;
+  volume: number;
+  priceOpen: number;
+  priceCurrent: number;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  profit: number;
 };
 
 type Mt5Account = {
@@ -22,6 +38,7 @@ type Mt5Account = {
   status_message?: string | null;
   last_error?: string | null;
   last_connected_at?: string | null;
+  positions?: Mt5Position[];
 };
 
 function Panel({
@@ -71,6 +88,8 @@ export default function MT5ConnectWorkspace({
   onBack,
 }: MT5ConnectWorkspaceProps) {
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [accountType, setAccountType] = useState<Mt5AccountType | "">("");
+  const [brokerId, setBrokerId] = useState("");
   const [login, setLogin] = useState("");
   const [server, setServer] = useState("");
   const [password, setPassword] = useState("");
@@ -81,6 +100,14 @@ export default function MT5ConnectWorkspace({
 
   const isConnecting = account?.status === "connecting" || isSubmitting;
   const isConnected = account?.status === "connected";
+  const availableBrokers = useMemo(
+    () => MT5_BROKERS.filter((broker) => broker.accountType === accountType),
+    [accountType],
+  );
+  const selectedBroker = useMemo(
+    () => MT5_BROKERS.find((broker) => broker.id === brokerId) ?? null,
+    [brokerId],
+  );
 
   const statusTone = useMemo(() => {
     if (isConnected) {
@@ -147,7 +174,10 @@ export default function MT5ConnectWorkspace({
   }, [loadStatus]);
 
   useEffect(() => {
-    if (!activeAccountId || account?.status !== "connecting") {
+    if (
+      !activeAccountId ||
+      !["connecting", "connected"].includes(account?.status ?? "")
+    ) {
       return;
     }
 
@@ -155,7 +185,7 @@ export default function MT5ConnectWorkspace({
       loadStatus(activeAccountId).catch((error) => {
         console.log("POLL MT5 STATUS ERROR:", error);
       });
-    }, 2000);
+    }, account?.status === "connecting" ? 2000 : 5000);
 
     return () => window.clearInterval(interval);
   }, [account?.status, activeAccountId, loadStatus]);
@@ -163,8 +193,8 @@ export default function MT5ConnectWorkspace({
   async function handleConnect() {
     setMessage("");
 
-    if (!login.trim() || !server.trim() || !password) {
-      setMessage("Enter your MT5 login, exact server, and investor password.");
+    if (!accountType || !brokerId || !login.trim() || !server || !password) {
+      setMessage("Select the account type, company and server, then enter your MT5 login and investor password.");
       return;
     }
 
@@ -188,6 +218,8 @@ export default function MT5ConnectWorkspace({
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
+          accountType,
+          broker: brokerId,
           login: login.trim(),
           server: server.trim(),
           password,
@@ -247,7 +279,7 @@ export default function MT5ConnectWorkspace({
           <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-400">
             Enter your MT5 account details below. EdgeVault handles the MT5
             connection in the background. No connector, MT5 installation, VPS,
-            or broker/company selection is required on your device.
+            or RDP access is required on your device.
           </p>
 
           {!isSignedIn ? (
@@ -270,11 +302,72 @@ export default function MT5ConnectWorkspace({
         <div className="max-w-2xl">
           <h2 className="text-2xl font-bold text-white">MT5 account details</h2>
           <p className="mt-2 text-sm leading-relaxed text-slate-400">
-            Use the exact server name shown by your broker. Only use your
+            Select whether this is a broker or prop-firm account, then choose
+            the company and exact server assigned to you. Only use your
             read-only / investor password.
           </p>
 
           <div className="mt-6 space-y-5">
+            <div>
+              <FieldLabel>Account Type</FieldLabel>
+              <select
+                value={accountType}
+                onChange={(event) => {
+                  setAccountType(event.target.value as Mt5AccountType | "");
+                  setBrokerId("");
+                  setServer("");
+                }}
+                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
+              >
+                <option value="">Select account type</option>
+                <option value="broker">Broker</option>
+                <option value="prop_firm">Prop Firm</option>
+              </select>
+            </div>
+
+            <div>
+              <FieldLabel>{accountType === "prop_firm" ? "Prop Firm" : "Broker"}</FieldLabel>
+              <select
+                value={brokerId}
+                onChange={(event) => {
+                  setBrokerId(event.target.value);
+                  setServer("");
+                }}
+                disabled={!accountType}
+                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">
+                  {accountType
+                    ? `Select ${accountType === "prop_firm" ? "prop firm" : "broker"}`
+                    : "Select account type first"}
+                </option>
+                {availableBrokers.map((broker) => (
+                  <option key={broker.id} value={broker.id}>
+                    {broker.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <FieldLabel>MT5 Server</FieldLabel>
+              <select
+                value={server}
+                onChange={(event) => setServer(event.target.value)}
+                disabled={!selectedBroker}
+                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">
+                  {selectedBroker ? "Select server" : "Select broker first"}
+                </option>
+                {selectedBroker?.servers.map((serverName) => (
+                  <option key={serverName} value={serverName}>
+                    {serverName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <FieldLabel>MT5 Login</FieldLabel>
               <input
@@ -283,17 +376,6 @@ export default function MT5ConnectWorkspace({
                 inputMode="numeric"
                 autoComplete="off"
                 placeholder="e.g. 12345678"
-                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
-              />
-            </div>
-
-            <div>
-              <FieldLabel>Exact MT5 Server</FieldLabel>
-              <input
-                value={server}
-                onChange={(event) => setServer(event.target.value)}
-                autoComplete="off"
-                placeholder="e.g. Broker-MT5Real"
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
               />
             </div>
@@ -379,6 +461,54 @@ export default function MT5ConnectWorkspace({
             <p className="mt-4 text-sm text-slate-400">
               {account.last_error || account.status_message}
             </p>
+          ) : null}
+
+          {isConnected ? (
+            <div className="mt-6">
+              <div className="flex items-center justify-between gap-4">
+                <h3 className="text-lg font-bold text-white">Open positions</h3>
+                <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
+                  {account.positions?.length ?? 0}
+                </span>
+              </div>
+
+              {account.positions?.length ? (
+                <div className="mt-3 overflow-x-auto rounded-xl border border-slate-800">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-slate-900/90 text-xs uppercase tracking-[0.12em] text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Symbol</th>
+                        <th className="px-4 py-3">Side</th>
+                        <th className="px-4 py-3">Volume</th>
+                        <th className="px-4 py-3">Open</th>
+                        <th className="px-4 py-3">Current</th>
+                        <th className="px-4 py-3">Profit</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800 bg-slate-950/70 text-slate-200">
+                      {account.positions.map((position) => (
+                        <tr key={String(position.ticket)}>
+                          <td className="px-4 py-3 font-semibold text-white">{position.symbol}</td>
+                          <td className={`px-4 py-3 font-bold uppercase ${position.side === "buy" ? "text-emerald-400" : "text-red-400"}`}>
+                            {position.side}
+                          </td>
+                          <td className="px-4 py-3">{Number(position.volume).toFixed(2)}</td>
+                          <td className="px-4 py-3">{Number(position.priceOpen).toFixed(5)}</td>
+                          <td className="px-4 py-3">{Number(position.priceCurrent).toFixed(5)}</td>
+                          <td className={`px-4 py-3 font-semibold ${Number(position.profit) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {formatMoney(Number(position.profit), account.currency)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="mt-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
+                  This account currently has no open positions.
+                </p>
+              )}
+            </div>
           ) : null}
         </Panel>
       ) : null}

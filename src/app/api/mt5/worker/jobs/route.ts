@@ -4,6 +4,7 @@ import {
   getSupabaseAdmin,
   isAuthorizedMt5Worker,
 } from "@/lib/mt5Hosted";
+import { getMt5BrokerByServer } from "@/lib/mt5ServerCatalog";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -117,6 +118,20 @@ async function claimNextJob(request: NextRequest, workerIdInput?: string) {
       continue;
     }
 
+    const broker = getMt5BrokerByServer(account.server);
+    if (!broker) {
+      await supabaseAdmin
+        .from("mt5_connection_jobs")
+        .update({
+          status: "failed",
+          error_message: `Unsupported MT5 server: ${account.server}`,
+          completed_at: now,
+          updated_at: now,
+        })
+        .eq("id", claimedJob.id);
+      continue;
+    }
+
     return jsonNoStore({
       success: true,
       pendingCount: pendingCount ?? 1,
@@ -124,6 +139,7 @@ async function claimNextJob(request: NextRequest, workerIdInput?: string) {
         id: claimedJob.id,
         action: claimedJob.action,
         accountId: account.id,
+        broker: broker.name,
         login: account.login,
         server: account.server,
         password: decryptMt5Password(account.encrypted_password),
