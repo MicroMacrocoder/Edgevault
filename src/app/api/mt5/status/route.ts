@@ -41,7 +41,7 @@ type Mt5JobResult = {
   status: string;
   result_json: Mt5Snapshot | null;
   error_message: string | null;
-  terminal_slot: string | null;
+  created_at: string;
   updated_at: string;
 };
 
@@ -95,9 +95,9 @@ export async function GET(request: NextRequest) {
 
     const { data: latestJobData, error: latestJobError } = await supabaseAdmin
       .from("mt5_connection_jobs")
-      .select("status,result_json,error_message,terminal_slot,updated_at")
+      .select("status,result_json,error_message,created_at,updated_at")
       .eq("account_id", account.id)
-      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
           status_message:
             "MT5 account connected through the EdgeVault hosted worker.",
           last_error: null,
-          terminal_slot: latestJob.terminal_slot || account.terminal_slot,
+          terminal_slot: account.terminal_slot,
           last_connected_at: latestJob.updated_at,
           updated_at: latestJob.updated_at,
           positions,
@@ -159,6 +159,25 @@ export async function GET(request: NextRequest) {
           status_message: failureMessage,
           last_error: failureMessage,
           positions,
+        },
+      });
+    }
+
+    if (
+      latestJob?.status === "pending" ||
+      latestJob?.status === "processing"
+    ) {
+      return jsonNoStore({
+        success: true,
+        account: {
+          ...account,
+          status: "connecting",
+          status_message:
+            latestJob.status === "processing"
+              ? "The hosted MT5 worker is connecting this account."
+              : "Waiting for the hosted MT5 worker.",
+          last_error: null,
+          positions: [],
         },
       });
     }
