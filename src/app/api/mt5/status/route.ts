@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, getSupabaseAdmin } from "@/lib/mt5Hosted";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const SAFE_ACCOUNT_FIELDS =
   "id,login,server,company,account_name,currency,balance,equity,trade_allowed,status,status_message,last_error,terminal_slot,last_connected_at,updated_at" as const;
@@ -24,14 +25,45 @@ type HostedMt5Account = {
   updated_at: string;
 };
 
+type Mt5Snapshot = {
+  login?: string;
+  server?: string;
+  company?: string;
+  name?: string;
+  currency?: string;
+  balance?: number;
+  equity?: number;
+  tradeAllowed?: boolean;
+  positions?: unknown[];
+};
+
+type Mt5JobResult = {
+  status: string;
+  result_json: Mt5Snapshot | null;
+  error_message: string | null;
+  terminal_slot: string | null;
+  updated_at: string;
+};
+
+function jsonNoStore(body: unknown, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "CDN-Cache-Control": "no-store",
+      "Vercel-CDN-Cache-Control": "no-store",
+    },
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
 
     if (!user) {
-      return NextResponse.json(
+      return jsonNoStore(
         { success: false, message: authError ?? "Unauthorized." },
-        { status: 401 },
+        401,
       );
     }
 
@@ -57,44 +89,93 @@ export async function GET(request: NextRequest) {
 
     const account = (data ?? null) as unknown as HostedMt5Account | null;
 
-    let positions: unknown[] = [];
-
-    if (account?.id) {
-      const { data: latestJob, error: latestJobError } = await supabaseAdmin
-        .from("mt5_connection_jobs")
-        .select("result_json")
-        .eq("account_id", account.id)
-        .not("result_json", "is", null)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (latestJobError) {
-        throw latestJobError;
-      }
-
-      const resultJson = latestJob?.result_json as
-        | { positions?: unknown[] }
-        | null
-        | undefined;
-      positions = Array.isArray(resultJson?.positions)
-        ? resultJson.positions
-        : [];
+    if (!account) {
+      return jsonNoStore({ success: true, account: null });
     }
 
-    return NextResponse.json({
+    const { data: latestJobData, error: latestJobError } = await supabaseAdmin
+      .from("mt5_connection_jobs")
+      .select("status,result_json,error_message,terminal_slot,updated_at")
+      .eq("account_id", account.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestJobError) {
+      throw latestJobError;
+    }
+
+    const latestJob = (latestJobData ?? null) as unknown as Mt5JobResult | null;
+    const snapshot = latestJob?.result_json ?? null;
+    const positions = Array.isArray(snapshot?.positions)
+      ? snapshot.positions
+      : [];
+
+    if (latestJob?.status === "completed" && snapshot) {
+      return jsonNoStore({
+        success: true,
+        account: {
+          ...account,
+          login: snapshot.login ? String(snapshot.login) : account.login,
+          server: snapshot.server || account.server,
+          company: snapshot.company || account.company,
+          account_name: snapshot.name || account.account_name,
+          currency: snapshot.currency || account.currency,
+          balance:
+            typeof snapshot.balance === "number"
+              ? snapshot.balance
+              : account.balance,
+          equity:
+            typeof snapshot.equity === "number"
+              ? snapshot.equity
+              : account.equity,
+          trade_allowed:
+            typeof snapshot.tradeAllowed === "boolean"
+              ? snapshot.tradeAllowed
+              : account.trade_allowed,
+          status: "connected",
+          status_message:
+            "MT5 account connected through the EdgeVault hosted worker.",
+          last_error: null,
+          terminal_slot: latestJob.terminal_slot || account.terminal_slot,
+          last_connected_at: latestJob.updated_at,
+          updated_at: latestJob.updated_at,
+          positions,
+        },
+      });
+    }
+
+    if (latestJob?.status === "failed") {
+      const failureMessage =
+        latestJob.error_message ||
+        account.last_error ||
+        "MT5 connection failed.";
+
+      return jsonNoStore({
+        success: true,
+        account: {
+          ...account,
+          status: "error",
+          status_message: failureMessage,
+          last_error: failureMessage,
+          positions,
+        },
+      });
+    }
+
+    return jsonNoStore({
       success: true,
-      account: account ? { ...account, positions } : null,
+      account: { ...account, positions },
     });
   } catch (error: any) {
     console.error("MT5 STATUS ERROR:", error);
 
-    return NextResponse.json(
+    return jsonNoStore(
       {
         success: false,
         message: error?.message ?? "Could not read MT5 connection status.",
       },
-      { status: 500 },
+      500,
     );
   }
 }
