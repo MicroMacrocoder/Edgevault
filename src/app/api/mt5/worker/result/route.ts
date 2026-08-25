@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const supabaseAdmin = getSupabaseAdmin();
     const { data: job, error: jobError } = await supabaseAdmin
       .from("mt5_connection_jobs")
-      .select("id, account_id")
+      .select("id, account_id, created_at")
       .eq("id", jobId)
       .maybeSingle();
 
@@ -48,10 +48,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const { data: newestJob, error: newestJobError } = await supabaseAdmin
+      .from("mt5_connection_jobs")
+      .select("id")
+      .eq("account_id", job.account_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (newestJobError) {
+      throw newestJobError;
+    }
+
+    if (newestJob?.id && newestJob.id !== jobId) {
+      return NextResponse.json({
+        success: true,
+        ignored: true,
+        message: "Ignored a snapshot from a superseded MT5 job.",
+      });
+    }
+
     const now = new Date().toISOString();
 
     if (success) {
-      const { error: accountError } = await supabaseAdmin
+      const { data: updatedAccount, error: accountError } = await supabaseAdmin
         .from("mt5_accounts")
         .update({
           company: accountInfo?.company ?? null,
@@ -71,13 +91,19 @@ export async function POST(request: NextRequest) {
           last_connected_at: now,
           updated_at: now,
         })
-        .eq("id", job.account_id);
+        .eq("id", job.account_id)
+        .select("id")
+        .maybeSingle();
 
       if (accountError) {
         throw accountError;
       }
 
-      const { error: completeError } = await supabaseAdmin
+      if (!updatedAccount) {
+        throw new Error("The MT5 account row could not be updated.");
+      }
+
+      const { data: completedJob, error: completeError } = await supabaseAdmin
         .from("mt5_connection_jobs")
         .update({
           status: "completed",
@@ -86,15 +112,21 @@ export async function POST(request: NextRequest) {
           completed_at: now,
           updated_at: now,
         })
-        .eq("id", jobId);
+        .eq("id", jobId)
+        .select("id")
+        .maybeSingle();
 
       if (completeError) {
         throw completeError;
       }
+
+      if (!completedJob) {
+        throw new Error("The MT5 connection job could not be completed.");
+      }
     } else {
       const failureMessage = message || "MT5 connection failed.";
 
-      const { error: accountError } = await supabaseAdmin
+      const { data: updatedAccount, error: accountError } = await supabaseAdmin
         .from("mt5_accounts")
         .update({
           status: "error",
@@ -103,13 +135,19 @@ export async function POST(request: NextRequest) {
           worker_id: workerId,
           updated_at: now,
         })
-        .eq("id", job.account_id);
+        .eq("id", job.account_id)
+        .select("id")
+        .maybeSingle();
 
       if (accountError) {
         throw accountError;
       }
 
-      const { error: failError } = await supabaseAdmin
+      if (!updatedAccount) {
+        throw new Error("The MT5 account row could not be updated.");
+      }
+
+      const { data: failedJob, error: failError } = await supabaseAdmin
         .from("mt5_connection_jobs")
         .update({
           status: "failed",
@@ -118,10 +156,16 @@ export async function POST(request: NextRequest) {
           completed_at: now,
           updated_at: now,
         })
-        .eq("id", jobId);
+        .eq("id", jobId)
+        .select("id")
+        .maybeSingle();
 
       if (failError) {
         throw failError;
+      }
+
+      if (!failedJob) {
+        throw new Error("The MT5 connection job could not be marked failed.");
       }
     }
 

@@ -20,7 +20,12 @@ function jsonNoStore(body: unknown, status = 200) {
   });
 }
 
-async function claimNextJob(request: NextRequest, workerIdInput?: string) {
+async function claimNextJob(
+  request: NextRequest,
+  workerIdInput?: string,
+  hasFreeSlot = true,
+  activeAccountIds: string[] = [],
+) {
   if (!isAuthorizedMt5Worker(request)) {
     return jsonNoStore(
       { success: false, message: "Unauthorized worker." },
@@ -35,24 +40,76 @@ async function claimNextJob(request: NextRequest, workerIdInput?: string) {
 
   const supabaseAdmin = getSupabaseAdmin();
 
+  const now = new Date().toISOString();
+  const staleCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+  const { error: expireError } = await supabaseAdmin
+    .from("mt5_connection_jobs")
+    .update({
+      status: "failed",
+      error_message: "The hosted MT5 worker job expired after repeated attempts.",
+      completed_at: now,
+      updated_at: now,
+    })
+    .eq("status", "processing")
+    .lt("claimed_at", staleCutoff)
+    .gte("attempts", 3);
+
+  if (expireError) {
+    throw expireError;
+  }
+
+  const { error: recoverError } = await supabaseAdmin
+    .from("mt5_connection_jobs")
+    .update({
+      status: "pending",
+      worker_id: null,
+      claimed_at: null,
+      updated_at: now,
+    })
+    .eq("status", "processing")
+    .lt("claimed_at", staleCutoff)
+    .lt("attempts", 3);
+
+  if (recoverError) {
+    throw recoverError;
+  }
+
+  const normalizedActiveAccountIds = Array.from(
+    new Set(activeAccountIds.map((value) => String(value).trim()).filter(Boolean)),
+  );
+
+  if (!hasFreeSlot && normalizedActiveAccountIds.length === 0) {
+    return jsonNoStore({ success: true, job: null, pendingCount: 0 });
+  }
+
   // Count first so the VPS can tell us whether Production can actually see
   // the pending rows. This also makes diagnosis obvious instead of silently
   // returning "no job".
-  const { count: pendingCount, error: countError } = await supabaseAdmin
+  let countQuery = supabaseAdmin
     .from("mt5_connection_jobs")
     .select("id", { count: "exact", head: true })
     .eq("status", "pending");
 
-  if (countError) {
-    throw countError;
-  }
-
-  const { data: pendingJobs, error: pendingError } = await supabaseAdmin
+  let pendingQuery = supabaseAdmin
     .from("mt5_connection_jobs")
     .select("id, account_id, user_id, attempts, action, created_at")
     .eq("status", "pending")
     .order("created_at", { ascending: true })
     .limit(5);
+
+  if (!hasFreeSlot) {
+    countQuery = countQuery.in("account_id", normalizedActiveAccountIds);
+    pendingQuery = pendingQuery.in("account_id", normalizedActiveAccountIds);
+  }
+
+  const { count: pendingCount, error: countError } = await countQuery;
+
+  if (countError) {
+    throw countError;
+  }
+
+  const { data: pendingJobs, error: pendingError } = await pendingQuery;
 
   if (pendingError) {
     throw pendingError;
@@ -69,16 +126,16 @@ async function claimNextJob(request: NextRequest, workerIdInput?: string) {
   // Multiple workers may poll at the same time. Try each visible candidate
   // and only take a row that is still pending at the instant of UPDATE.
   for (const pendingJob of pendingJobs) {
-    const now = new Date().toISOString();
+    const claimTime = new Date().toISOString();
 
     const { data: claimedRows, error: claimError } = await supabaseAdmin
       .from("mt5_connection_jobs")
       .update({
         status: "processing",
         worker_id: workerId,
-        claimed_at: now,
+        claimed_at: claimTime,
         attempts: Number(pendingJob.attempts || 0) + 1,
-        updated_at: now,
+        updated_at: claimTime,
       })
       .eq("id", pendingJob.id)
       .eq("status", "pending")
@@ -110,8 +167,8 @@ async function claimNextJob(request: NextRequest, workerIdInput?: string) {
         .update({
           status: "failed",
           error_message: "MT5 account record was not found.",
-          completed_at: now,
-          updated_at: now,
+          completed_at: claimTime,
+          updated_at: claimTime,
         })
         .eq("id", claimedJob.id);
 
@@ -125,8 +182,8 @@ async function claimNextJob(request: NextRequest, workerIdInput?: string) {
         .update({
           status: "failed",
           error_message: `Unsupported MT5 server: ${account.server}`,
-          completed_at: now,
-          updated_at: now,
+          completed_at: claimTime,
+          updated_at: claimTime,
         })
         .eq("id", claimedJob.id);
       continue;
@@ -158,15 +215,26 @@ async function claimNextJob(request: NextRequest, workerIdInput?: string) {
 export async function POST(request: NextRequest) {
   try {
     let workerId = "";
+    let hasFreeSlot = true;
+    let activeAccountIds: string[] = [];
 
     try {
       const body = await request.json();
       workerId = String(body?.workerId ?? "").trim();
+      hasFreeSlot = body?.hasFreeSlot !== false;
+      activeAccountIds = Array.isArray(body?.activeAccountIds)
+        ? body.activeAccountIds.map((value: unknown) => String(value))
+        : [];
     } catch {
       // Empty/invalid JSON is fine; fall back to query/default worker id.
     }
 
-    return await claimNextJob(request, workerId);
+    return await claimNextJob(
+      request,
+      workerId,
+      hasFreeSlot,
+      activeAccountIds,
+    );
   } catch (error: any) {
     console.error("MT5 WORKER JOB ERROR:", error);
 

@@ -105,8 +105,18 @@ def api_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def claim_job() -> dict[str, Any] | None:
-    return api_request("/api/mt5/worker/jobs", {"workerId": WORKER_ID}).get("job")
+def claim_job(
+    active_account_ids: list[str] | None = None,
+    has_free_slot: bool = True,
+) -> dict[str, Any] | None:
+    return api_request(
+        "/api/mt5/worker/jobs",
+        {
+            "workerId": WORKER_ID,
+            "hasFreeSlot": has_free_slot,
+            "activeAccountIds": active_account_ids or [],
+        },
+    ).get("job")
 
 
 def post_result(job_id: str, slot_name: str, success: bool, message: str, account_info: dict[str, Any] | None = None) -> None:
@@ -542,14 +552,42 @@ def main() -> int:
         try:
             forward_snapshots(sessions)
             free_slot = next((name for name in SLOT_NAMES if name not in sessions), None)
-            if free_slot:
-                job = claim_job()
-                if job:
-                    try:
-                        sessions[free_slot] = start_job(job, free_slot)
-                    except Exception as error:
-                        LOG.exception("Could not start MT5 job %s", job.get("id"))
-                        post_result(str(job.get("id") or ""), free_slot, False, str(error))
+            job = claim_job(
+                active_account_ids=[session.account_id for session in sessions.values()],
+                has_free_slot=free_slot is not None,
+            )
+            if job:
+                target_slot = free_slot or next(
+                    (
+                        name
+                        for name, session in sessions.items()
+                        if session.account_id == str(job.get("accountId") or "")
+                    ),
+                    None,
+                )
+
+                if not target_slot:
+                    raise RuntimeError(
+                        "The worker claimed a job without an available or matching terminal slot."
+                    )
+
+                previous_session = sessions.pop(target_slot, None)
+                if previous_session:
+                    LOG.info(
+                        "Replacing %s job %s with newer job %s for account %s",
+                        target_slot,
+                        previous_session.job_id,
+                        job.get("id"),
+                        job.get("accountId"),
+                    )
+                    previous_session.config_path.unlink(missing_ok=True)
+                    stop_slot_terminal(SLOT_ROOT / target_slot / "terminal64.exe")
+
+                try:
+                    sessions[target_slot] = start_job(job, target_slot)
+                except Exception as error:
+                    LOG.exception("Could not start MT5 job %s", job.get("id"))
+                    post_result(str(job.get("id") or ""), target_slot, False, str(error))
         except KeyboardInterrupt:
             LOG.info("Worker stopped by administrator.")
             return 0
