@@ -73,10 +73,24 @@ class ActiveSession:
     account_id: str
     expected_login: str
     result_path: Path
+    sync_path: Path
     config_path: Path
-    process: subprocess.Popen[Any]
+    process: Any
     last_result_mtime_ns: int = 0
     connected: bool = False
+
+
+@dataclass
+class RestoredTerminalProcess:
+    process: psutil.Process
+
+    def poll(self) -> int | None:
+        try:
+            if self.process.is_running() and self.process.status() != psutil.STATUS_ZOMBIE:
+                return None
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            pass
+        return 0
 
 
 def api_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -131,6 +145,13 @@ def post_result(job_id: str, slot_name: str, success: bool, message: str, accoun
             "workerId": WORKER_ID,
         },
     )
+
+
+def post_sync(session: ActiveSession, payload: dict[str, Any]) -> None:
+    payload["workerId"] = WORKER_ID
+    payload["accountId"] = session.account_id
+    payload["login"] = session.expected_login
+    api_request("/api/mt5/worker/sync", payload)
 
 
 def stop_slot_terminal(terminal_path: Path) -> None:
@@ -419,11 +440,17 @@ def write_preset(slot_path: Path, job: dict[str, Any]) -> None:
     (preset_dir / "EdgeVaultBridge.set").write_text(
         "\n".join([
             f"EdgeVaultJobId={job['id']}",
+            f"EdgeVaultAccountId={job['accountId']}",
+            f"EdgeVaultWorkerId={WORKER_ID}",
             f"EdgeVaultExpectedLogin={job['login']}",
             f"EdgeVaultTerminalSlot={slot_path.name}",
             "EdgeVaultResultFile=edgevault_bridge_result.json",
+            "EdgeVaultSyncFile=edgevault_mt5_sync.json",
             f"EdgeVaultConnectTimeoutSeconds={CONNECT_TIMEOUT_SECONDS}",
             "EdgeVaultSnapshotSeconds=5",
+            "EdgeVaultHistoryBatchSize=200",
+            "EdgeVaultIncrementalSyncSeconds=10",
+            "EdgeVaultHistoryOverlapSeconds=300",
             "",
         ]),
         encoding="utf-8",
@@ -454,11 +481,82 @@ def write_terminal_config(slot_path: Path, job: dict[str, Any]) -> Path:
     return config_path
 
 
+def read_preset_values(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def find_running_terminal(terminal_path: Path) -> psutil.Process | None:
+    target = os.path.normcase(str(terminal_path.resolve()))
+    for process in psutil.process_iter(["pid", "exe"]):
+        try:
+            executable = process.info.get("exe")
+            if executable and os.path.normcase(str(Path(executable).resolve())) == target:
+                return process
+        except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+            continue
+    return None
+
+
+def restore_running_sessions() -> dict[str, ActiveSession]:
+    sessions: dict[str, ActiveSession] = {}
+    for slot_name in SLOT_NAMES:
+        slot_path = SLOT_ROOT / slot_name
+        terminal_process = find_running_terminal(slot_path / "terminal64.exe")
+        if terminal_process is None:
+            continue
+        preset = read_preset_values(slot_path / "MQL5" / "Presets" / "EdgeVaultBridge.set")
+        account_id = preset.get("EdgeVaultAccountId", "").strip()
+        expected_login = preset.get("EdgeVaultExpectedLogin", "").strip()
+        job_id = preset.get("EdgeVaultJobId", "").strip()
+        if not account_id or not expected_login or not job_id:
+            LOG.warning(
+                "%s is running without complete EdgeVault v3 session metadata; it will not be treated as a free slot.",
+                slot_name,
+            )
+            continue
+        result_path = slot_path / "MQL5" / "Files" / preset.get(
+            "EdgeVaultResultFile", "edgevault_bridge_result.json"
+        )
+        sync_path = slot_path / "MQL5" / "Files" / preset.get(
+            "EdgeVaultSyncFile", "edgevault_mt5_sync.json"
+        )
+        connected = False
+        try:
+            snapshot = json.loads(result_path.read_text(encoding="utf-8-sig"))
+            account_info = snapshot.get("accountInfo") or {}
+            connected = snapshot.get("success") is True and str(account_info.get("login") or "") == expected_login
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            pass
+        sessions[slot_name] = ActiveSession(
+            slot_name=slot_name,
+            job_id=job_id,
+            account_id=account_id,
+            expected_login=expected_login,
+            result_path=result_path,
+            sync_path=sync_path,
+            config_path=slot_path / "EdgeVaultRuntime" / f"connect-{job_id}.ini",
+            process=RestoredTerminalProcess(terminal_process),
+            connected=connected,
+        )
+        LOG.info("Restored %s session for MT5 login %s", slot_name, expected_login)
+    return sessions
+
+
 def start_job(job: dict[str, Any], slot_name: str) -> ActiveSession:
     slot_path = SLOT_ROOT / slot_name
     terminal_path = slot_path / "terminal64.exe"
     expert_path = slot_path / "MQL5" / "Experts" / "EdgeVaultBridge.ex5"
     result_path = slot_path / "MQL5" / "Files" / "edgevault_bridge_result.json"
+    sync_path = slot_path / "MQL5" / "Files" / "edgevault_mt5_sync.json"
     if not terminal_path.exists():
         raise RuntimeError(f"Missing terminal: {terminal_path}")
     if not expert_path.exists():
@@ -467,6 +565,7 @@ def start_job(job: dict[str, Any], slot_name: str) -> ActiveSession:
     provision_server_database(slot_path, str(job["broker"]), str(job["server"]))
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.unlink(missing_ok=True)
+    sync_path.unlink(missing_ok=True)
     write_preset(slot_path, job)
     config_path = write_terminal_config(slot_path, job)
     LOG.info("Launching %s for MT5 login %s on server %s", slot_name, job["login"], job["server"])
@@ -476,7 +575,7 @@ def start_job(job: dict[str, Any], slot_name: str) -> ActiveSession:
     )
     return ActiveSession(
         slot_name=slot_name, job_id=str(job["id"]), account_id=str(job["accountId"]),
-        expected_login=str(job["login"]), result_path=result_path,
+        expected_login=str(job["login"]), result_path=result_path, sync_path=sync_path,
         config_path=config_path, process=process,
     )
 
@@ -531,6 +630,30 @@ def forward_snapshots(sessions: dict[str, ActiveSession]) -> None:
             del sessions[slot_name]
 
 
+def forward_sync_batches(sessions: dict[str, ActiveSession]) -> None:
+    for slot_name, session in list(sessions.items()):
+        if not session.connected or not session.sync_path.exists():
+            continue
+        try:
+            raw = session.sync_path.read_text(encoding="utf-8-sig").strip()
+            if not raw:
+                continue
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("MT5 sync payload must be a JSON object.")
+            post_sync(session, payload)
+            session.sync_path.unlink(missing_ok=True)
+            LOG.info("Forwarded %s MT5 history batch for account %s", slot_name, session.account_id)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            LOG.warning("Could not read %s MT5 history batch: %s", slot_name, error)
+        except Exception as error:
+            LOG.warning(
+                "Could not forward %s MT5 history batch; retaining it for retry: %s",
+                slot_name,
+                error,
+            )
+
+
 def validate_slots() -> None:
     if not SLOT_NAMES:
         raise RuntimeError("MT5_SLOT_NAMES must contain at least one terminal slot.")
@@ -546,18 +669,27 @@ def main() -> int:
         handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(AGENT_DIR / "edgevault-worker.log", encoding="utf-8")],
     )
     validate_slots()
-    sessions: dict[str, ActiveSession] = {}
+    sessions = restore_running_sessions()
     LOG.info("EdgeVault hosted MT5 worker started as %s", WORKER_ID)
     while True:
         try:
             forward_snapshots(sessions)
-            free_slot = next((name for name in SLOT_NAMES if name not in sessions), None)
+            forward_sync_batches(sessions)
+            free_slot = next(
+                (
+                    name
+                    for name in SLOT_NAMES
+                    if name not in sessions
+                    and find_running_terminal(SLOT_ROOT / name / "terminal64.exe") is None
+                ),
+                None,
+            )
             job = claim_job(
                 active_account_ids=[session.account_id for session in sessions.values()],
                 has_free_slot=free_slot is not None,
             )
             if job:
-                target_slot = free_slot or next(
+                matching_slot = next(
                     (
                         name
                         for name, session in sessions.items()
@@ -565,6 +697,7 @@ def main() -> int:
                     ),
                     None,
                 )
+                target_slot = matching_slot or free_slot
 
                 if not target_slot:
                     raise RuntimeError(
