@@ -1,5 +1,5 @@
 #property copyright "EdgeVault"
-#property version   "3.00"
+#property version   "3.01"
 #property strict
 
 input string EdgeVaultJobId = "";
@@ -14,12 +14,14 @@ input int EdgeVaultSnapshotSeconds = 5;
 input int EdgeVaultHistoryBatchSize = 200;
 input int EdgeVaultIncrementalSyncSeconds = 10;
 input int EdgeVaultHistoryOverlapSeconds = 300;
+input int EdgeVaultAccountSnapshotSeconds = 60;
 
 datetime started_at = 0;
 datetime last_snapshot_at = 0;
 datetime last_sync_cycle_at = 0;
 datetime sync_cycle_end = 0;
 datetime previous_sync_cycle_end = 0;
+datetime last_account_snapshot_at = 0;
 bool failure_written = false;
 bool history_cycle_active = false;
 bool initial_history_complete = false;
@@ -51,7 +53,10 @@ string JsonUlong(ulong value) { return JsonString(IntegerToString((long)value));
 
 int BrokerUtcOffsetMinutes()
   {
-   return (int)((TimeCurrent()-TimeGMT())/60);
+   datetime broker_now=TimeTradeServer();
+   if(broker_now<=0) broker_now=TimeCurrent();
+   double raw_offset_minutes=(double)(broker_now-TimeGMT())/60.0;
+   return (int)(MathRound(raw_offset_minutes/15.0)*15.0);
   }
 
 string DateTimeToIso(datetime value)
@@ -460,13 +465,14 @@ void WriteSyncBatch()
    string positions_json=BuildSyncPositionsJson(positions_complete);
    bool cycle_complete=(history_deal_index>=history_deal_total && history_order_index>=history_order_total);
    bool reports_initial_complete=initial_history_complete || cycle_complete;
+   bool include_account_snapshot=(last_account_snapshot_at==0 || now-last_account_snapshot_at>=EdgeVaultAccountSnapshotSeconds);
    string json="{";
    json+="\"schemaVersion\":1,";
    json+="\"workerId\":"+JsonString(EdgeVaultWorkerId)+",";
    json+="\"accountId\":"+JsonString(EdgeVaultAccountId)+",";
    json+="\"login\":"+JsonString(IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)))+",";
    json+="\"server\":"+JsonString(AccountInfoString(ACCOUNT_SERVER))+",";
-   json+="\"snapshot\":"+BuildSnapshotJson(positions_json)+",";
+   json+="\"snapshot\":"+(include_account_snapshot ? BuildSnapshotJson(positions_json) : "null")+",";
    json+="\"deals\":"+deals_json+",";
    json+="\"orders\":"+orders_json+",";
    json+="\"positions\":"+positions_json+",";
@@ -495,6 +501,7 @@ void WriteSyncBatch()
       previous_sync_cycle_end=sync_cycle_end;
       last_sync_cycle_at=now;
      }
+   if(include_account_snapshot) last_account_snapshot_at=now;
   }
 
 int OnInit()
