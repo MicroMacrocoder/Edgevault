@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin, isAuthorizedMt5Worker } from "@/lib/mt5Hosted";
+import {
+  deriveMt5TradeRows,
+  type Mt5OpenPosition,
+  type Mt5RawDeal,
+} from "@/lib/mt5TradeDerivation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -123,6 +128,136 @@ function normalizeDirection(value: unknown) {
   return direction;
 }
 
+function snapshotRowBalance(snapshot: any, fallback: unknown) {
+  return (
+    optionalNumber(snapshot?.balance, "snapshot.balance") ??
+    optionalNumber(fallback, "account.balance")
+  );
+}
+
+function compareDigitStrings(left: string, right: string) {
+  const normalizedLeft = left.replace(/^0+(?=\d)/, "");
+  const normalizedRight = right.replace(/^0+(?=\d)/, "");
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return normalizedLeft.length - normalizedRight.length;
+  }
+  return normalizedLeft.localeCompare(normalizedRight);
+}
+
+function maxDigitString(left: unknown, right: unknown) {
+  const normalizedLeft = mt5Identifier(left ?? 0, "cursor", true) as string;
+  const normalizedRight = mt5Identifier(right ?? 0, "cursor", true) as string;
+  return compareDigitStrings(normalizedLeft, normalizedRight) >= 0
+    ? normalizedLeft
+    : normalizedRight;
+}
+
+function minDigitString(left: unknown, right: unknown) {
+  if (left === null || left === undefined || left === "") {
+    return mt5Identifier(right, "cursor");
+  }
+  if (right === null || right === undefined || right === "") {
+    return mt5Identifier(left, "cursor");
+  }
+  const normalizedLeft = mt5Identifier(left, "cursor", true) as string;
+  const normalizedRight = mt5Identifier(right, "cursor", true) as string;
+  return compareDigitStrings(normalizedLeft, normalizedRight) <= 0
+    ? normalizedLeft
+    : normalizedRight;
+}
+
+async function loadAllAccountDeals(
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
+  accountId: string,
+) {
+  const rows: Mt5RawDeal[] = [];
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabaseAdmin
+      .from("mt5_deals")
+      .select(
+        "deal_ticket,order_ticket,position_identifier,time_msc,executed_at_utc,broker_time_text,broker_utc_offset_minutes,deal_type_code,entry_type_code,symbol,volume,price,commission,swap,profit,fee",
+      )
+      .eq("account_id", accountId)
+      .order("time_msc", { ascending: true })
+      .order("deal_ticket", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    rows.push(...((data ?? []) as unknown as Mt5RawDeal[]));
+    if (!data || data.length < pageSize) break;
+  }
+
+  return rows;
+}
+
+async function refreshDerivedTrades({
+  supabaseAdmin,
+  accountId,
+  accountBalance,
+}: {
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>;
+  accountId: string;
+  accountBalance: number | null;
+}) {
+  const deals = await loadAllAccountDeals(supabaseAdmin, accountId);
+  const { data: openPositionData, error: openPositionError } =
+    await supabaseAdmin
+      .from("mt5_positions")
+      .select("position_identifier,floating_profit,swap")
+      .eq("account_id", accountId)
+      .eq("is_open", true);
+
+  if (openPositionError) throw openPositionError;
+
+  const derivedRows = deriveMt5TradeRows({
+    accountId,
+    accountBalance,
+    deals,
+    openPositions: (openPositionData ?? []) as unknown as Mt5OpenPosition[],
+  });
+
+  for (let index = 0; index < derivedRows.length; index += MAX_BATCH_ITEMS) {
+    const { error } = await supabaseAdmin
+      .from("mt5_trade_records")
+      .upsert(derivedRows.slice(index, index + MAX_BATCH_ITEMS), {
+        onConflict: "account_id,position_identifier,trade_cycle",
+      });
+    if (error) throw error;
+  }
+
+  const { data: existingRows, error: existingError } = await supabaseAdmin
+    .from("mt5_trade_records")
+    .select("id,position_identifier,trade_cycle")
+    .eq("account_id", accountId);
+  if (existingError) throw existingError;
+
+  const currentKeys = new Set(
+    derivedRows.map(
+      (row) => `${row.position_identifier}:${row.trade_cycle}`,
+    ),
+  );
+  const staleIds = (existingRows ?? [])
+    .filter(
+      (row) =>
+        !currentKeys.has(
+          `${String(row.position_identifier)}:${Number(row.trade_cycle)}`,
+        ),
+    )
+    .map((row) => String(row.id));
+
+  for (let index = 0; index < staleIds.length; index += MAX_BATCH_ITEMS) {
+    const { error } = await supabaseAdmin
+      .from("mt5_trade_records")
+      .delete()
+      .in("id", staleIds.slice(index, index + MAX_BATCH_ITEMS));
+    if (error) throw error;
+  }
+
+  return derivedRows.length;
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!isAuthorizedMt5Worker(request)) {
@@ -148,7 +283,7 @@ export async function POST(request: NextRequest) {
 
     const { data: account, error: accountError } = await supabaseAdmin
       .from("mt5_accounts")
-      .select("id,login,server,worker_id")
+      .select("id,login,server,worker_id,balance")
       .eq("id", accountId)
       .maybeSingle();
 
@@ -466,24 +601,63 @@ export async function POST(request: NextRequest) {
       };
 
       if (sync) {
-        syncRow.initial_history_complete = sync?.initialHistoryComplete === true;
-        syncRow.history_start_time_msc = mt5Identifier(
+        const { data: existingSync, error: existingSyncError } =
+          await supabaseAdmin
+            .from("mt5_sync_state")
+            .select(
+              "initial_history_complete,history_start_time_msc,last_deal_time_msc,last_deal_ticket,last_order_time_msc",
+            )
+            .eq("account_id", accountId)
+            .maybeSingle();
+        if (existingSyncError) throw existingSyncError;
+
+        const incomingHistoryStart = mt5Identifier(
           sync?.historyStartTimeMsc,
           "sync.historyStartTimeMsc",
         );
-        syncRow.last_deal_time_msc = mt5Identifier(
+        const incomingDealTime = mt5Identifier(
           sync?.lastDealTimeMsc ?? 0,
           "sync.lastDealTimeMsc",
           true,
         );
-        syncRow.last_deal_ticket = mt5Identifier(
+        const incomingDealTicket = mt5Identifier(
           sync?.lastDealTicket,
           "sync.lastDealTicket",
         );
-        syncRow.last_order_time_msc = mt5Identifier(
+        const incomingOrderTime = mt5Identifier(
           sync?.lastOrderTimeMsc ?? 0,
           "sync.lastOrderTimeMsc",
           true,
+        );
+
+        syncRow.initial_history_complete =
+          existingSync?.initial_history_complete === true ||
+          sync?.initialHistoryComplete === true;
+        syncRow.history_start_time_msc = minDigitString(
+          existingSync?.history_start_time_msc,
+          incomingHistoryStart,
+        );
+        syncRow.last_deal_time_msc = maxDigitString(
+          existingSync?.last_deal_time_msc,
+          incomingDealTime,
+        );
+        const existingDealTime = mt5Identifier(
+          existingSync?.last_deal_time_msc ?? 0,
+          "sync.lastDealTimeMsc",
+          true,
+        ) as string;
+        syncRow.last_deal_ticket =
+          compareDigitStrings(incomingDealTime as string, existingDealTime) > 0
+            ? incomingDealTicket
+            : compareDigitStrings(incomingDealTime as string, existingDealTime) < 0
+              ? existingSync?.last_deal_ticket
+              : maxDigitString(
+                  existingSync?.last_deal_ticket,
+                  incomingDealTicket,
+                );
+        syncRow.last_order_time_msc = maxDigitString(
+          existingSync?.last_order_time_msc,
+          incomingOrderTime,
         );
         syncRow.last_successful_sync_at = now;
         syncRow.sync_status = "ready";
@@ -497,6 +671,22 @@ export async function POST(request: NextRequest) {
       if (error) throw error;
     }
 
+    let derivedTradeCount: number | null = null;
+    const initialHistoryComplete = sync?.initialHistoryComplete === true;
+    const isInitialFullHistory =
+      String(sync?.historyStartTimeMsc ?? "") === "0";
+    if (
+      initialHistoryComplete &&
+      (dealRows.length > 0 || positionsComplete || isInitialFullHistory)
+    ) {
+      derivedTradeCount = await refreshDerivedTrades({
+        supabaseAdmin,
+        accountId,
+        accountBalance:
+          snapshotRowBalance(snapshot, account.balance),
+      });
+    }
+
     return jsonNoStore({
       success: true,
       accountId,
@@ -506,6 +696,7 @@ export async function POST(request: NextRequest) {
         orders: orderRows.length,
         positions: positionRows.length,
         positionsClosed: closedPositionCount,
+        logicalTrades: derivedTradeCount,
       },
       message: "MT5 account data synchronized successfully.",
     });

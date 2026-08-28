@@ -5,8 +5,9 @@ import type { ReactNode } from "react";
 import TradeLogBuilderWorkspace from "@/components/dashboard/TradeLogBuilderWorkspace";
 import SavedTradeLogsWorkspace from "@/components/dashboard/SavedTradeLogsWorkspace";
 import TradeLogTableWorkspace from "@/components/dashboard/TradeLogTableWorkspace";
+import AutomaticMT5TradeLogWorkspace from "@/components/dashboard/AutomaticMT5TradeLogWorkspace";
 
-type TradeLogView = "hub" | "builder" | "saved-logs" | "open-log";
+type TradeLogView = "automatic" | "hub" | "builder" | "saved-logs" | "open-log";
 
 function Panel({
   children,
@@ -52,9 +53,11 @@ function IconBox({
 }
 
 function TradeLogHub({
+  onOpenAutomatic,
   onOpenBuilder,
   onOpenSavedLogs,
 }: {
+  onOpenAutomatic: () => void;
   onOpenBuilder: () => void;
   onOpenSavedLogs: () => void;
 }) {
@@ -65,6 +68,13 @@ function TradeLogHub({
         <div className="absolute bottom-0 left-20 h-44 w-44 rounded-full bg-emerald-400/10 blur-3xl" />
 
         <div className="relative">
+          <button
+            type="button"
+            onClick={onOpenAutomatic}
+            className="mb-5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-sm font-bold text-emerald-200"
+          >
+            ← Automatic MT5 Trade Log
+          </button>
           <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-300">
             EdgeVault Trade Log Hub
           </p>
@@ -162,7 +172,7 @@ function TradeLogHub({
 }
 
 export default function TradeLogWorkspace() {
-  const [activeView, setActiveView] = useState<TradeLogView>("hub");
+  const [activeView, setActiveView] = useState<TradeLogView>("automatic");
   const [selectedLogId, setSelectedLogId] = useState("");
   const [builderEditLogId, setBuilderEditLogId] = useState("");
 
@@ -186,6 +196,23 @@ export default function TradeLogWorkspace() {
     setSelectedLogId(logId);
     setBuilderEditLogId(logId);
     setActiveView("builder");
+  }
+
+  if (activeView === "automatic") {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setActiveView("hub")}
+            className="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-300"
+          >
+            Manual Trade Logs
+          </button>
+        </div>
+        <AutomaticMT5TradeLogWorkspace />
+      </div>
+    );
   }
 
   if (activeView === "builder") {
@@ -231,6 +258,7 @@ export default function TradeLogWorkspace() {
 
   return (
     <TradeLogHub
+      onOpenAutomatic={() => setActiveView("automatic")}
       onOpenBuilder={openNewBuilder}
       onOpenSavedLogs={openSavedLogs}
     />

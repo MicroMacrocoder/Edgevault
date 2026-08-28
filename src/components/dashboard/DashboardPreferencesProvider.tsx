@@ -64,13 +64,18 @@ export type DashboardPreferences = {
     currency: MomentumCurrency;
     timeframe: DashboardTimeframe;
   };
+  tradeLog: {
+    timezoneMode: "broker" | "device" | "utc" | "custom";
+    customTimezone: string;
+  };
 };
 
 export type DashboardPreferenceSection =
   | "widgetVisibility"
   | "overview"
   | "currencyStrength"
-  | "momentum";
+  | "momentum"
+  | "tradeLog";
 
 export type DashboardPreferenceSyncStatus =
   | "loading"
@@ -107,6 +112,10 @@ export const defaultDashboardPreferences: DashboardPreferences = {
   momentum: {
     currency: "DXY",
     timeframe: "H1",
+  },
+  tradeLog: {
+    timezoneMode: "broker",
+    customTimezone: "UTC",
   },
 };
 
@@ -166,6 +175,7 @@ function cloneDefaultPreferences(): DashboardPreferences {
     overview: { ...defaultDashboardPreferences.overview },
     currencyStrength: { ...defaultDashboardPreferences.currencyStrength },
     momentum: { ...defaultDashboardPreferences.momentum },
+    tradeLog: { ...defaultDashboardPreferences.tradeLog },
   };
 }
 
@@ -272,6 +282,31 @@ function normalizeDashboardPreferences(value: unknown): DashboardPreferences {
       dashboardTimeframes.includes(timeframe as DashboardTimeframe)
     ) {
       normalized.momentum.timeframe = timeframe as DashboardTimeframe;
+    }
+  }
+
+  const tradeLog = isRecord(value.tradeLog) ? value.tradeLog : null;
+
+  if (tradeLog) {
+    const timezoneMode = readString(tradeLog.timezoneMode);
+    const customTimezone = readString(tradeLog.customTimezone);
+    if (
+      timezoneMode === "broker" ||
+      timezoneMode === "device" ||
+      timezoneMode === "utc" ||
+      timezoneMode === "custom"
+    ) {
+      normalized.tradeLog.timezoneMode = timezoneMode;
+    }
+    if (customTimezone) {
+      try {
+        new Intl.DateTimeFormat("en-US", {
+          timeZone: customTimezone,
+        }).format(new Date());
+        normalized.tradeLog.customTimezone = customTimezone;
+      } catch {
+        normalized.tradeLog.customTimezone = "UTC";
+      }
     }
   }
 
