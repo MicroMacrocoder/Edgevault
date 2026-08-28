@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   calculateAutomaticMt5HeaderValues,
   type AutomaticMt5Header,
@@ -105,11 +105,6 @@ export default function AutomaticMT5TradeDetails({
   const [saving, setSaving] = useState(false);
   const [uploadingHeaderId, setUploadingHeaderId] = useState("");
   const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    setFields(trade.custom_fields || {});
-    setMessage("");
-  }, [trade.id, trade.custom_fields]);
 
   const calculatedValues = useMemo(
     () => calculateAutomaticMt5HeaderValues(trade, sessionTimezone),

@@ -1,7 +1,7 @@
 import { getUserTradeLogsWithRows } from "@/lib/supabase";
 import type { TradeLogWithRows } from "@/lib/performanceMetrics";
 
-type AutomaticMt5Account = {
+export type AutomaticMt5Account = {
   id: string;
   login: string;
   server: string;
@@ -14,7 +14,7 @@ type AutomaticMt5Account = {
   last_connected_at?: string | null;
 };
 
-type AutomaticMt5Trade = {
+export type AutomaticMt5Trade = {
   id: string;
   account_id: string;
   position_identifier: string;
@@ -43,6 +43,8 @@ type AutomaticMt5Response = {
 export type CombinedPerformanceTradeLogsResult = {
   tradeLogs: TradeLogWithRows[];
   warnings: string[];
+  automaticAccounts: AutomaticMt5Account[];
+  automaticTrades: AutomaticMt5Trade[];
 };
 
 function finiteNumber(value: unknown) {
@@ -119,7 +121,7 @@ export function convertAutomaticMt5TradesToPerformanceLogs({
   });
 }
 
-export async function getAutomaticMt5PerformanceLogs(accessToken: string) {
+async function getAutomaticMt5Data(accessToken: string) {
   const response = await fetch("/api/mt5/trades?accountId=all", {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
@@ -132,10 +134,15 @@ export async function getAutomaticMt5PerformanceLogs(accessToken: string) {
     );
   }
 
-  return convertAutomaticMt5TradesToPerformanceLogs({
+  return {
     accounts: result.accounts ?? [],
     trades: result.trades ?? [],
-  });
+  };
+}
+
+export async function getAutomaticMt5PerformanceLogs(accessToken: string) {
+  const result = await getAutomaticMt5Data(accessToken);
+  return convertAutomaticMt5TradesToPerformanceLogs(result);
 }
 
 export async function getCombinedPerformanceTradeLogs({
@@ -147,12 +154,14 @@ export async function getCombinedPerformanceTradeLogs({
 }): Promise<CombinedPerformanceTradeLogsResult> {
   const [manualResult, automaticResult] = await Promise.allSettled([
     getUserTradeLogsWithRows(userId),
-    getAutomaticMt5PerformanceLogs(accessToken),
+    getAutomaticMt5Data(accessToken),
   ]);
 
   const warnings: string[] = [];
   let manualLogs: TradeLogWithRows[] = [];
   let automaticLogs: TradeLogWithRows[] = [];
+  let automaticAccounts: AutomaticMt5Account[] = [];
+  let automaticTrades: AutomaticMt5Trade[] = [];
 
   if (manualResult.status === "fulfilled") {
     if (manualResult.value?.error) {
@@ -165,7 +174,12 @@ export async function getCombinedPerformanceTradeLogs({
   }
 
   if (automaticResult.status === "fulfilled") {
-    automaticLogs = automaticResult.value;
+    automaticAccounts = automaticResult.value.accounts;
+    automaticTrades = automaticResult.value.trades;
+    automaticLogs = convertAutomaticMt5TradesToPerformanceLogs({
+      accounts: automaticAccounts,
+      trades: automaticTrades,
+    });
   } else {
     warnings.push("Automatic MT5 trades could not be loaded.");
   }
@@ -173,5 +187,7 @@ export async function getCombinedPerformanceTradeLogs({
   return {
     tradeLogs: [...automaticLogs, ...manualLogs],
     warnings,
+    automaticAccounts,
+    automaticTrades,
   };
 }

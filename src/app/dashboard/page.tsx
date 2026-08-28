@@ -10,7 +10,11 @@ import {
   getUserJournalEntries,
   getUserTradeLogTemplates,
 } from "@/lib/supabase";
-import { getCombinedPerformanceTradeLogs } from "@/lib/mt5Performance";
+import {
+  getCombinedPerformanceTradeLogs,
+  type AutomaticMt5Account,
+  type AutomaticMt5Trade,
+} from "@/lib/mt5Performance";
 import {
   calculatePerformanceMetrics,
   formatMoney,
@@ -150,49 +154,6 @@ const profitBars = [
 const tradePerformanceData = [
   { name: "Win", value: 193 },
   { name: "Loss", value: 55 },
-];
-
-const recentTrades = [
-  {
-    pair: "EURUSD",
-    side: "Long",
-    profit: "+$560.00",
-    time: "2h ago",
-    flag: "🇪🇺",
-    positive: true,
-  },
-  {
-    pair: "XAUUSD",
-    side: "Long",
-    profit: "+$1,240.00",
-    time: "4h ago",
-    flag: "🟡",
-    positive: true,
-  },
-  {
-    pair: "GBPUSD",
-    side: "Short",
-    profit: "+$320.00",
-    time: "6h ago",
-    flag: "🇬🇧",
-    positive: true,
-  },
-  {
-    pair: "NAS100",
-    side: "Long",
-    profit: "+$780.00",
-    time: "1d ago",
-    flag: "🇺🇸",
-    positive: true,
-  },
-  {
-    pair: "USDJPY",
-    side: "Short",
-    profit: "-$230.00",
-    time: "1d ago",
-    flag: "🇯🇵",
-    positive: false,
-  },
 ];
 
 const sidebarItems = [
@@ -665,6 +626,18 @@ type DashboardTradeLogPreview = {
   createdAt: string;
 };
 
+type DashboardRecentMt5Trade = {
+  id: string;
+  accountId: string;
+  accountName: string;
+  accountCurrency: string;
+  symbol: string;
+  direction: string;
+  status: string;
+  exitTime: string;
+  profitLoss: number;
+};
+
 const dashboardCOTMarkets = [
   { label: "U.S. Dollar Index", symbol: "DXY" },
   { label: "Euro FX", symbol: "EUR" },
@@ -704,6 +677,19 @@ function formatDashboardDate(dateValue?: string | null) {
   });
 }
 
+function formatDashboardTradeDate(dateValue?: string | null) {
+  if (!dateValue) return "—";
+  const parsedDate = new Date(dateValue);
+  if (Number.isNaN(parsedDate.getTime())) return "—";
+  return parsedDate.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 
 const dashboardWidgetOptions: {
   id: DashboardWidgetId;
@@ -734,6 +720,11 @@ const dashboardWidgetOptions: {
     id: "performance",
     label: "Performance Chart",
     description: "Full-width equity and return chart.",
+  },
+  {
+    id: "recent-mt5-trades",
+    label: "Recent MT5 Trades",
+    description: "Latest five automatic trades with an MT5 account filter.",
   },
   {
     id: "economic-calendar",
@@ -779,11 +770,19 @@ function OverviewSection({
 
   const visibleWidgets = preferences.widgetVisibility;
   const selectedTradeLogId = preferences.overview.selectedTradeLogId;
+  const selectedRecentMt5AccountId =
+    preferences.overview.recentMt5AccountId;
   const dateRange = preferences.overview.performanceDateRange;
   const chartMode = preferences.overview.performanceChartMode;
   const selectedCotMarket = preferences.overview.selectedCotMarket;
 
   const [tradeLogs, setTradeLogs] = useState<TradeLogWithRows[]>([]);
+  const [recentMt5Accounts, setRecentMt5Accounts] = useState<
+    AutomaticMt5Account[]
+  >([]);
+  const [recentMt5TradeRows, setRecentMt5TradeRows] = useState<
+    AutomaticMt5Trade[]
+  >([]);
   const [isLoadingPerformance, setIsLoadingPerformance] = useState(true);
   const [performanceMessage, setPerformanceMessage] = useState("");
 
@@ -818,16 +817,22 @@ function OverviewSection({
         });
 
         setTradeLogs(result.tradeLogs);
+        setRecentMt5Accounts(result.automaticAccounts);
+        setRecentMt5TradeRows(result.automaticTrades);
         setPerformanceMessage(result.warnings.join(" "));
         setIsLoadingPerformance(false);
         return;
       }
 
       setTradeLogs(getGuestTradeLogsWithRows());
+      setRecentMt5Accounts([]);
+      setRecentMt5TradeRows([]);
       setIsLoadingPerformance(false);
     } catch (error) {
       console.log("LOAD DASHBOARD PERFORMANCE ERROR:", error);
       setTradeLogs([]);
+      setRecentMt5Accounts([]);
+      setRecentMt5TradeRows([]);
       setPerformanceMessage(
         "Something went wrong while loading dashboard data.",
       );
@@ -968,6 +973,56 @@ function OverviewSection({
     [tradeLogs, selectedTradeLogId, dateRange],
   );
 
+  const effectiveRecentMt5AccountId = useMemo(
+    () =>
+      selectedRecentMt5AccountId === "all" ||
+      recentMt5Accounts.some(
+        (account) => account.id === selectedRecentMt5AccountId,
+      )
+        ? selectedRecentMt5AccountId
+        : "all",
+    [recentMt5Accounts, selectedRecentMt5AccountId],
+  );
+
+  const recentMt5Trades = useMemo<DashboardRecentMt5Trade[]>(() => {
+    const accountMap = new Map(
+      recentMt5Accounts.map((account) => [account.id, account]),
+    );
+
+    return recentMt5TradeRows
+      .filter(
+        (trade) =>
+          effectiveRecentMt5AccountId === "all" ||
+          trade.account_id === effectiveRecentMt5AccountId,
+      )
+      .map((trade) => {
+        const account = accountMap.get(trade.account_id);
+        return {
+          id: trade.id,
+          accountId: trade.account_id,
+          accountName:
+            account?.account_name ||
+            account?.company ||
+            `MT5 ${account?.login || "account"}`,
+          accountCurrency: account?.currency || "USD",
+          symbol: trade.symbol,
+          direction: trade.direction,
+          status: trade.status,
+          exitTime:
+            trade.status === "open"
+              ? trade.entry_at_utc
+              : trade.exit_at_utc || trade.updated_at || trade.entry_at_utc,
+          profitLoss: Number(trade.net_profit || 0),
+        };
+      })
+      .sort(
+        (left, right) =>
+          new Date(right.exitTime).getTime() -
+          new Date(left.exitTime).getTime(),
+      )
+      .slice(0, 5);
+  }, [effectiveRecentMt5AccountId, recentMt5Accounts, recentMt5TradeRows]);
+
   const performanceChartData = useMemo(() => {
     if (metrics.equityCurve.length > 0) {
       return metrics.equityCurve.map((point) => ({
@@ -1041,6 +1096,7 @@ function OverviewSection({
       "currency-strength": true,
       "momentum-strength": true,
       performance: true,
+      "recent-mt5-trades": true,
       "economic-calendar": true,
       "market-snapshot": true,
       "market-intelligence": true,
@@ -1397,6 +1453,110 @@ function OverviewSection({
             </p>
           ) : (
             <p className="mt-3 text-sm text-gray-500">{chartSubText}</p>
+          )}
+        </DashboardCard>
+      ) : null}
+
+      {visibleWidgets["recent-mt5-trades"] ? (
+        <DashboardCard className="p-5">
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">
+                Trade Log
+              </p>
+              <h2 className="mt-1 font-mono text-lg font-bold text-white">
+                Recent MT5 Trades
+              </h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Your five most recent open or closed automatic trades.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[240px_auto] sm:items-end">
+              <CompactCycleSelect<string>
+                label="MT5 account"
+                value={effectiveRecentMt5AccountId}
+                options={[
+                  { value: "all", label: "All MT5 accounts" },
+                  ...recentMt5Accounts.map((account) => ({
+                    value: account.id,
+                    label:
+                      account.account_name ||
+                      account.company ||
+                      `MT5 ${account.login}`,
+                  })),
+                ]}
+                onChange={(value) =>
+                  updateOverviewPreferences({ recentMt5AccountId: value })}
+                accent="cyan"
+              />
+
+              <button
+                type="button"
+                onClick={() => onSelectSection("trade-log")}
+                className="min-h-9 border border-gray-800 px-4 py-2 font-mono text-xs font-bold text-gray-300 transition hover:border-yellow-400 hover:text-yellow-400"
+              >
+                Open Trade Log
+              </button>
+            </div>
+          </div>
+
+          {isLoadingPerformance ? (
+            <div className="border border-gray-800 bg-black p-8 text-center font-mono text-sm text-gray-500">
+              Loading recent MT5 trades...
+            </div>
+          ) : recentMt5Trades.length === 0 ? (
+            <div className="border border-gray-800 bg-black p-8 text-center text-sm text-gray-500">
+              No MT5 trades found for this account.
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-gray-800 bg-black">
+              <table className="w-full min-w-[760px] border-collapse text-left">
+                <thead className="bg-[#080b14]">
+                  <tr className="border-b border-gray-800 font-mono text-[11px] uppercase tracking-[0.14em] text-gray-500">
+                    <th className="px-4 py-3">Account</th>
+                    <th className="px-4 py-3">Symbol</th>
+                    <th className="px-4 py-3">Direction</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Ext Date</th>
+                    <th className="px-4 py-3 text-right">P/L($)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentMt5Trades.map((trade) => (
+                    <tr
+                      key={trade.id}
+                      className="cursor-pointer border-b border-gray-800/80 text-sm text-gray-300 transition last:border-b-0 hover:bg-cyan-400/5"
+                      onClick={() => onSelectSection("trade-log")}
+                    >
+                      <td className="max-w-[220px] truncate px-4 py-3 text-xs text-gray-500">
+                        {trade.accountName}
+                      </td>
+                      <td className="px-4 py-3 font-mono font-bold text-white">
+                        {trade.symbol}
+                      </td>
+                      <td className={`px-4 py-3 font-mono font-bold capitalize ${trade.direction.toLowerCase() === "buy" ? "text-emerald-400" : "text-red-400"}`}>
+                        {trade.direction}
+                      </td>
+                      <td className="px-4 py-3 capitalize text-gray-400">
+                        {trade.status}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-400">
+                        {trade.status === "open"
+                          ? "Open"
+                          : formatDashboardTradeDate(trade.exitTime)}
+                      </td>
+                      <td className={`whitespace-nowrap px-4 py-3 text-right font-mono font-black ${trade.profitLoss >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {formatMoney(
+                          trade.profitLoss,
+                          trade.accountCurrency,
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </DashboardCard>
       ) : null}
@@ -1940,6 +2100,8 @@ export default function DashboardPage() {
               />
             ) : selectedSection === "journal" ? (
               <JournalWorkspace />
+            ) : selectedSection === "trade-log" ? (
+              <JournalWorkspace initialView="trade-log" />
             ) : selectedSection === "performance" ? (
               <PerformanceWorkspace />
             ) : selectedSection === "fundamentals" ? (

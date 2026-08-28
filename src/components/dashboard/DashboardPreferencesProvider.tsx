@@ -17,6 +17,7 @@ export type DashboardWidgetId =
   | "currency-strength"
   | "momentum-strength"
   | "performance"
+  | "recent-mt5-trades"
   | "economic-calendar"
   | "journal-library"
   | "saved-trade-logs"
@@ -51,6 +52,7 @@ export type DashboardPreferences = {
   overview: {
     selectedCotMarket: string;
     selectedTradeLogId: string;
+    recentMt5AccountId: string;
     performanceDateRange: "1D" | "1W" | "1M" | "3M" | "6M" | "YTD" | "ALL";
     performanceChartMode: "percentage" | "balance";
   };
@@ -91,6 +93,7 @@ export const defaultDashboardPreferences: DashboardPreferences = {
     "currency-strength": true,
     "momentum-strength": true,
     performance: true,
+    "recent-mt5-trades": true,
     "economic-calendar": true,
     "market-snapshot": true,
     "market-intelligence": true,
@@ -100,6 +103,7 @@ export const defaultDashboardPreferences: DashboardPreferences = {
   overview: {
     selectedCotMarket: "DXY",
     selectedTradeLogId: "all",
+    recentMt5AccountId: "all",
     performanceDateRange: "ALL",
     performanceChartMode: "percentage",
   },
@@ -207,6 +211,7 @@ function normalizeDashboardPreferences(value: unknown): DashboardPreferences {
   if (overview) {
     const selectedCotMarket = readString(overview.selectedCotMarket);
     const selectedTradeLogId = readString(overview.selectedTradeLogId);
+    const recentMt5AccountId = readString(overview.recentMt5AccountId);
     const performanceDateRange = readString(overview.performanceDateRange);
     const performanceChartMode = readString(overview.performanceChartMode);
 
@@ -216,6 +221,10 @@ function normalizeDashboardPreferences(value: unknown): DashboardPreferences {
 
     if (selectedTradeLogId) {
       normalized.overview.selectedTradeLogId = selectedTradeLogId;
+    }
+
+    if (recentMt5AccountId) {
+      normalized.overview.recentMt5AccountId = recentMt5AccountId;
     }
 
     if (

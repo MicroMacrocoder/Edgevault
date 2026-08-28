@@ -202,8 +202,12 @@ function JournalHub({
   );
 }
 
-export default function JournalWorkspace() {
-  const [activeView, setActiveView] = useState<JournalView>("hub");
+export default function JournalWorkspace({
+  initialView = "hub",
+}: {
+  initialView?: JournalView;
+}) {
+  const [activeView, setActiveView] = useState<JournalView>(initialView);
 
   if (activeView === "new-entry") {
     return (

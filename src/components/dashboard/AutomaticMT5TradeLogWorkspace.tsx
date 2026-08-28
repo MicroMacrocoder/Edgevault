@@ -631,6 +631,7 @@ export default function AutomaticMT5TradeLogWorkspace() {
     const serialIndex = filteredTrades.findIndex((trade) => trade.id === selectedTrade.id);
     return (
       <AutomaticMT5TradeDetails
+        key={selectedTrade.id}
         trade={selectedTrade}
         serialNumber={serialIndex >= 0 ? serialIndex + 1 : 1}
         account={accountMap.get(selectedTrade.account_id)}
