@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const TRADE_FIELDS =
-  "id,account_id,position_identifier,trade_cycle,symbol,status,direction,entry_time_msc,exit_time_msc,entry_at_utc,exit_at_utc,entry_broker_time_text,exit_broker_time_text,entry_broker_utc_offset_minutes,exit_broker_utc_offset_minutes,total_entry_lots,total_exit_lots,open_lots,weighted_entry_price,weighted_exit_price,gross_profit,commission,swap,fees,realized_net_profit,floating_profit,open_position_swap,net_profit,account_balance_at_entry,pl_percentage,entry_deal_count,exit_deal_count,first_deal_ticket,last_deal_ticket,updated_at";
+  "id,account_id,position_identifier,trade_cycle,symbol,status,direction,entry_time_msc,exit_time_msc,entry_at_utc,exit_at_utc,entry_broker_time_text,exit_broker_time_text,entry_broker_utc_offset_minutes,exit_broker_utc_offset_minutes,total_entry_lots,total_exit_lots,open_lots,weighted_entry_price,weighted_exit_price,stop_loss,take_profit,trade_comment,gross_profit,commission,swap,fees,realized_net_profit,floating_profit,open_position_swap,net_profit,account_balance_at_entry,pl_percentage,entry_deal_count,exit_deal_count,entry_deal_tickets,exit_deal_tickets,all_deal_tickets,first_deal_ticket,last_deal_ticket,custom_fields,updated_at";
 
 function jsonNoStore(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -56,6 +56,12 @@ export async function GET(request: NextRequest) {
     if (accountsError) throw accountsError;
 
     const accountIds = (accounts ?? []).map((account) => String(account.id));
+    const { data: settings, error: settingsError } = await supabaseAdmin
+      .from("mt5_trade_log_settings")
+      .select("optional_headers,session_timezone")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (settingsError) throw settingsError;
     if (
       requestedAccount !== "all" &&
       !accountIds.includes(requestedAccount)
@@ -69,7 +75,7 @@ export async function GET(request: NextRequest) {
     const selectedAccountIds =
       requestedAccount === "all" ? accountIds : [requestedAccount];
     if (!selectedAccountIds.length) {
-      return jsonNoStore({ success: true, accounts: [], trades: [] });
+      return jsonNoStore({ success: true, accounts: [], trades: [], settings });
     }
 
     const rows: unknown[] = [];
@@ -117,6 +123,7 @@ export async function GET(request: NextRequest) {
       selectedAccountId: requestedAccount,
       accounts: accountsWithBrokerTime,
       trades: rows,
+      settings,
     });
   } catch (error: any) {
     console.error("MT5 TRADES ERROR:", error);

@@ -89,7 +89,6 @@ export default function TradeLogTableWorkspace({
     "Floating P/L",
     "Swap",
     "Commission",
-    "Trade Comment",
     "SL/TP Source",
   ];
 
@@ -194,9 +193,12 @@ export default function TradeLogTableWorkspace({
   }
 
   function normalizeHeaderName(headerName) {
-    if (headerName === "Lot Size") return "Volume";
-    if (headerName === "Entry Date") return "Entry Time";
-    if (headerName === "Exit Date") return "Exit Time";
+    if (headerName === "Lot Size" || headerName === "Volume") return "Lot";
+    if (headerName === "Entry Date" || headerName === "Entry Time") return "Ent Date";
+    if (headerName === "Exit Date" || headerName === "Exit Time") return "Ext Date";
+    if (headerName === "Entry Price") return "Entry";
+    if (headerName === "Exit Price") return "Exit";
+    if (headerName === "Profit/Loss Amount") return "P/L($)";
     return headerName;
   }
 
@@ -442,36 +444,46 @@ export default function TradeLogTableWorkspace({
 
     const normalizedData = { ...rowData };
 
-    if (
-      normalizedData["Volume"] === undefined &&
-      normalizedData["Lot Size"] !== undefined
-    ) {
-      normalizedData["Volume"] = normalizedData["Lot Size"];
+    if (normalizedData["Lot"] === undefined) {
+      normalizedData["Lot"] =
+        normalizedData["Volume"] ?? normalizedData["Lot Size"] ?? "";
+    }
+
+    if (normalizedData["Entry"] === undefined) {
+      normalizedData["Entry"] = normalizedData["Entry Price"] ?? "";
+    }
+
+    if (normalizedData["Exit"] === undefined) {
+      normalizedData["Exit"] = normalizedData["Exit Price"] ?? "";
+    }
+
+    if (normalizedData["P/L($)"] === undefined) {
+      normalizedData["P/L($)"] = normalizedData["Profit/Loss Amount"] ?? "";
     }
 
     const normalizedEntryTime = buildCombinedDateTime(
       normalizedData["Entry Date"],
-      normalizedData["Entry Time"]
+      normalizedData["Ent Date"] ?? normalizedData["Entry Time"]
     );
 
     if (normalizedEntryTime) {
-      normalizedData["Entry Time"] = normalizedEntryTime;
+      normalizedData["Ent Date"] = normalizedEntryTime;
     }
 
     const normalizedExitTime = buildCombinedDateTime(
       normalizedData["Exit Date"],
-      normalizedData["Exit Time"]
+      normalizedData["Ext Date"] ?? normalizedData["Exit Time"]
     );
 
     if (normalizedExitTime) {
-      normalizedData["Exit Time"] = normalizedExitTime;
+      normalizedData["Ext Date"] = normalizedExitTime;
     }
 
     const symbol = normalizedData.Symbol || normalizedData.symbol || "";
 
     const priceFields = [
-      "Entry Price",
-      "Exit Price",
+      "Entry",
+      "Exit",
       "Stop Loss",
       "Take Profit",
       "Live Price",
@@ -495,10 +507,10 @@ export default function TradeLogTableWorkspace({
     const symbol = normalizedData.Symbol || "";
     const direction = String(normalizedData.Direction || "").toUpperCase();
 
-    const entryPrice = cleanNumber(normalizedData["Entry Price"]);
+    const entryPrice = cleanNumber(normalizedData["Entry"]);
     const stopLoss = cleanNumber(normalizedData["Stop Loss"]);
     const takeProfit = cleanNumber(normalizedData["Take Profit"]);
-    const exitPrice = cleanNumber(normalizedData["Exit Price"]);
+    const exitPrice = cleanNumber(normalizedData["Exit"]);
 
     if (entryPrice === null || !direction) {
       return {
@@ -840,25 +852,25 @@ export default function TradeLogTableWorkspace({
       if (!formulaKey) continue;
 
       if (formulaKey === "entry_market_session") {
-        updatedData[header.name] = getRegularMarketSession(updatedData["Entry Time"]);
+        updatedData[header.name] = getRegularMarketSession(updatedData["Ent Date"]);
       }
 
       if (formulaKey === "exit_market_session") {
-        updatedData[header.name] = getRegularMarketSession(updatedData["Exit Time"]);
+        updatedData[header.name] = getRegularMarketSession(updatedData["Ext Date"]);
       }
 
       if (formulaKey === "entry_ict_session") {
-        updatedData[header.name] = getIctMarketSession(updatedData["Entry Time"]);
+        updatedData[header.name] = getIctMarketSession(updatedData["Ent Date"]);
       }
 
       if (formulaKey === "exit_ict_session") {
-        updatedData[header.name] = getIctMarketSession(updatedData["Exit Time"]);
+        updatedData[header.name] = getIctMarketSession(updatedData["Ext Date"]);
       }
 
       if (formulaKey === "trade_duration") {
         updatedData[header.name] = calculateTradeDuration(
-          updatedData["Entry Time"],
-          updatedData["Exit Time"]
+          updatedData["Ent Date"],
+          updatedData["Ext Date"]
         );
       }
 
@@ -913,7 +925,7 @@ export default function TradeLogTableWorkspace({
     const normalizedHeader = normalizeHeaderName(headerName);
     const normalizedRowData = normalizeRowData(rowData);
 
-    if (normalizedHeader === "Entry Time" || normalizedHeader === "Exit Time") {
+    if (normalizedHeader === "Ent Date" || normalizedHeader === "Ext Date") {
       const rawValue = normalizedRowData?.[normalizedHeader];
 
       if (!rawValue) return "";
@@ -930,8 +942,8 @@ export default function TradeLogTableWorkspace({
 
   function getRowSortTime(row) {
     const normalizedRowData = normalizeRowDataWithoutFormulas(row.rowData);
-    const exitTime = parseDateTimeValue(normalizedRowData["Exit Time"]);
-    const entryTime = parseDateTimeValue(normalizedRowData["Entry Time"]);
+    const exitTime = parseDateTimeValue(normalizedRowData["Ext Date"]);
+    const entryTime = parseDateTimeValue(normalizedRowData["Ent Date"]);
 
     if (exitTime) return exitTime.getTime();
     if (entryTime) return entryTime.getTime();
@@ -1045,7 +1057,7 @@ export default function TradeLogTableWorkspace({
       rowData: applyAutomaticFormulasToRow(
         {
           "S/N": rows.length + 1,
-          "Entry Time": new Date().toISOString(),
+          "Ent Date": new Date().toISOString(),
         },
         headers
       ),
@@ -1441,6 +1453,14 @@ export default function TradeLogTableWorkspace({
     const commission = pickValue(reportRow, ["Commission"]);
     const swap = pickValue(reportRow, ["Swap"]);
     const comment = pickValue(reportRow, ["Comment"]);
+    const profitNumber = cleanNumber(profit);
+    const status = !exitTime
+      ? "Open"
+      : profitNumber === null || profitNumber === 0
+        ? "Breakeven"
+        : profitNumber > 0
+          ? "Win"
+          : "Loss";
 
     return {
       id: `row-mt5-report-${ticket || Date.now()}-${index}`,
@@ -1452,15 +1472,17 @@ export default function TradeLogTableWorkspace({
           mt5_source: "MT5 Report Import",
           sync_status: exitTime ? "closed" : "open",
           Symbol: symbol,
+          Status: status,
           Direction: normalizeDirection(type),
-          Volume: volume,
-          "Entry Time": entryTime,
-          "Entry Price": entryPrice,
+          Lot: volume,
+          "Ent Date": entryTime,
+          Entry: entryPrice,
           "Stop Loss": stopLoss,
           "Take Profit": takeProfit,
-          "Exit Time": exitTime,
-          "Exit Price": exitPrice,
-          "Profit/Loss Amount": profit,
+          "Ext Date": exitTime,
+          Exit: exitPrice,
+          "P/L($)": profit,
+          "P/L(%)": "",
           Commission: commission,
           Swap: swap,
           "Trade Comment": comment,

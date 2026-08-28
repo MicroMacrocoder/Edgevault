@@ -51,8 +51,32 @@ export default function TradeLogBuilderWorkspace({
         lockedPosition: true,
       },
       {
+        id: "required-entry-date",
+        name: "Ent Date",
+        group: "required",
+        type: "datetime",
+        locked: true,
+        lockedPosition: false,
+      },
+      {
+        id: "required-exit-date",
+        name: "Ext Date",
+        group: "required",
+        type: "datetime",
+        locked: true,
+        lockedPosition: false,
+      },
+      {
         id: "required-symbol",
         name: "Symbol",
+        group: "required",
+        type: "text",
+        locked: true,
+        lockedPosition: false,
+      },
+      {
+        id: "required-status",
+        name: "Status",
         group: "required",
         type: "text",
         locked: true,
@@ -67,24 +91,16 @@ export default function TradeLogBuilderWorkspace({
         lockedPosition: false,
       },
       {
-        id: "required-volume",
-        name: "Volume",
+        id: "required-lot",
+        name: "Lot",
         group: "required",
         type: "number",
         locked: true,
         lockedPosition: false,
       },
       {
-        id: "required-entry-time",
-        name: "Entry Time",
-        group: "required",
-        type: "datetime",
-        locked: true,
-        lockedPosition: false,
-      },
-      {
-        id: "required-entry-price",
-        name: "Entry Price",
+        id: "required-entry",
+        name: "Entry",
         group: "required",
         type: "number",
         locked: true,
@@ -107,24 +123,24 @@ export default function TradeLogBuilderWorkspace({
         lockedPosition: false,
       },
       {
-        id: "required-exit-time",
-        name: "Exit Time",
-        group: "required",
-        type: "datetime",
-        locked: true,
-        lockedPosition: false,
-      },
-      {
-        id: "required-exit-price",
-        name: "Exit Price",
+        id: "required-exit",
+        name: "Exit",
         group: "required",
         type: "number",
         locked: true,
         lockedPosition: false,
       },
       {
-        id: "required-profit-loss-amount",
-        name: "Profit/Loss Amount",
+        id: "required-profit-loss-dollar",
+        name: "P/L($)",
+        group: "required",
+        type: "number",
+        locked: true,
+        lockedPosition: false,
+      },
+      {
+        id: "required-profit-loss-percent",
+        name: "P/L(%)",
         group: "required",
         type: "number",
         locked: true,
@@ -193,56 +209,56 @@ export default function TradeLogBuilderWorkspace({
         name: "Entry Market Session",
         type: "auto",
         formulaKey: "entry_market_session",
-        description: "Auto-detects regular market session from Entry Time.",
+        description: "Auto-detects regular market session from Ent Date.",
       },
       {
         id: "auto-exit-market-session",
         name: "Exit Market Session",
         type: "auto",
         formulaKey: "exit_market_session",
-        description: "Auto-detects regular market session from Exit Time.",
+        description: "Auto-detects regular market session from Ext Date.",
       },
       {
         id: "auto-entry-ict-session",
         name: "Entry ICT Session",
         type: "auto",
         formulaKey: "entry_ict_session",
-        description: "Auto-detects ICT session from Entry Time.",
+        description: "Auto-detects ICT session from Ent Date.",
       },
       {
         id: "auto-exit-ict-session",
         name: "Exit ICT Session",
         type: "auto",
         formulaKey: "exit_ict_session",
-        description: "Auto-detects ICT session from Exit Time.",
+        description: "Auto-detects ICT session from Ext Date.",
       },
       {
         id: "auto-trade-duration",
         name: "Trade Duration",
         type: "auto",
         formulaKey: "trade_duration",
-        description: "Uses Entry Time and Exit Time.",
+        description: "Uses Ent Date and Ext Date.",
       },
       {
         id: "auto-sl-pips",
         name: "SL Pips",
         type: "auto",
         formulaKey: "sl_pips",
-        description: "Entry Price to Stop Loss distance.",
+        description: "Entry to Stop Loss distance.",
       },
       {
         id: "auto-tp-pips",
         name: "TP Pips",
         type: "auto",
         formulaKey: "tp_pips",
-        description: "Entry Price to Take Profit distance.",
+        description: "Entry to Take Profit distance.",
       },
       {
         id: "auto-result-pips",
         name: "Result Pips",
         type: "auto",
         formulaKey: "result_pips",
-        description: "Entry Price to Exit Price distance.",
+        description: "Entry to Exit distance.",
       },
       {
         id: "auto-planned-rr",
@@ -325,17 +341,12 @@ export default function TradeLogBuilderWorkspace({
   const [checkedAutomaticHeaderIds, setCheckedAutomaticHeaderIds] = useState([]);
 
   function normalizeHeaderName(headerName) {
-    if (headerName === "Lot Size") {
-      return "Volume";
-    }
-
-    if (headerName === "Entry Date") {
-      return "Entry Time";
-    }
-
-    if (headerName === "Exit Date") {
-      return "Exit Time";
-    }
+    if (headerName === "Lot Size" || headerName === "Volume") return "Lot";
+    if (headerName === "Entry Date" || headerName === "Entry Time") return "Ent Date";
+    if (headerName === "Exit Date" || headerName === "Exit Time") return "Ext Date";
+    if (headerName === "Entry Price") return "Entry";
+    if (headerName === "Exit Price") return "Exit";
+    if (headerName === "Profit/Loss Amount") return "P/L($)";
 
     return headerName;
   }

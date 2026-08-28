@@ -95,13 +95,18 @@ export interface PerformanceMetricsResult {
 const DEFAULT_CURRENCY = "USD";
 
 function normalizeHeaderName(headerName: string) {
-  if (headerName === "Lot Size") return "Volume";
-  if (headerName === "Entry Date") return "Entry Time";
-  if (headerName === "Exit Date") return "Exit Time";
-  if (headerName === "Profit") return "Profit/Loss Amount";
-  if (headerName === "Profit/Loss") return "Profit/Loss Amount";
-  if (headerName === "P/L") return "Profit/Loss Amount";
-  if (headerName === "Profi") return "Profit/Loss Amount";
+  if (headerName === "Lot Size" || headerName === "Volume") return "Lot";
+  if (headerName === "Entry Date" || headerName === "Entry Time") return "Ent Date";
+  if (headerName === "Exit Date" || headerName === "Exit Time") return "Ext Date";
+  if (headerName === "Entry Price") return "Entry";
+  if (headerName === "Exit Price") return "Exit";
+  if (
+    headerName === "Profit" ||
+    headerName === "Profit/Loss" ||
+    headerName === "P/L" ||
+    headerName === "Profi" ||
+    headerName === "Profit/Loss Amount"
+  ) return "P/L($)";
   return headerName;
 }
 
@@ -229,6 +234,7 @@ export function cleanNumber(value: any): number | null {
 function getProfitLossValue(rowData: TradeLogRowData) {
   // Prioritize actual closed trade result fields. Do not use account balance/equity fields.
   const value = pickValue(rowData, [
+    "P/L($)",
     "Profit/Loss Amount",
     "Profit/Loss",
     "P/L",
@@ -286,15 +292,19 @@ function isRealTradeRow(rowData: TradeLogRowData) {
   const hasTradeDirection = direction === "BUY" || direction === "SELL";
 
   const hasTradePrice = hasOwnNonEmptyValue(rowData, [
+    "Entry",
     "Entry Price",
     "Open Price",
+    "Exit",
     "Exit Price",
     "Close Price",
   ]);
 
   const hasTradeTime = hasOwnNonEmptyValue(rowData, [
+    "Ent Date",
     "Entry Time",
     "Open Time",
+    "Ext Date",
     "Exit Time",
     "Close Time",
     "Time",
@@ -414,9 +424,9 @@ export function normalizeTradeRows(tradeLogs: TradeLogWithRows[]): NormalizedTra
         pickValue(rowData, ["Direction", "Type", "Side"])
       );
 
-      const volume = cleanNumber(pickValue(rowData, ["Volume", "Lot Size", "Lots", "Size"])) || 0;
-      const entryTime = String(pickValue(rowData, ["Entry Time", "Open Time", "Time"])).trim();
-      const exitTime = String(pickValue(rowData, ["Exit Time", "Close Time"])).trim();
+      const volume = cleanNumber(pickValue(rowData, ["Lot", "Volume", "Lot Size", "Lots", "Size"])) || 0;
+      const entryTime = String(pickValue(rowData, ["Ent Date", "Entry Time", "Open Time", "Time"])).trim();
+      const exitTime = String(pickValue(rowData, ["Ext Date", "Exit Time", "Close Time"])).trim();
 
       const tradeDate =
         parseTradeDate(exitTime) ||
@@ -424,8 +434,8 @@ export function normalizeTradeRows(tradeLogs: TradeLogWithRows[]): NormalizedTra
         parseTradeDate(row.updatedAt) ||
         parseTradeDate(row.createdAt);
 
-      const entryPrice = cleanNumber(pickValue(rowData, ["Entry Price", "Open Price"]));
-      const exitPrice = cleanNumber(pickValue(rowData, ["Exit Price", "Close Price"]));
+      const entryPrice = cleanNumber(pickValue(rowData, ["Entry", "Entry Price", "Open Price"]));
+      const exitPrice = cleanNumber(pickValue(rowData, ["Exit", "Exit Price", "Close Price"]));
       const profitLoss = getProfitLossValue(rowData);
 
       return [

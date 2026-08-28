@@ -15,12 +15,18 @@ export type Mt5RawDeal = {
   swap?: number | string | null;
   profit?: number | string | null;
   fee?: number | string | null;
+  stop_loss?: number | string | null;
+  take_profit?: number | string | null;
+  comment?: string | null;
 };
 
 export type Mt5OpenPosition = {
   position_identifier: string;
   floating_profit?: number | string | null;
   swap?: number | string | null;
+  stop_loss?: number | string | null;
+  take_profit?: number | string | null;
+  comment?: string | null;
 };
 
 type Direction = "buy" | "sell";
@@ -47,6 +53,9 @@ type WorkingTrade = {
   commission: number;
   swap: number;
   fees: number;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  tradeComment: string | null;
   balanceAtEntry: number | null;
   entryDealTickets: string[];
   exitDealTickets: string[];
@@ -77,6 +86,9 @@ export type Mt5DerivedTradeRow = {
   commission: number;
   swap: number;
   fees: number;
+  stop_loss: number | null;
+  take_profit: number | null;
+  trade_comment: string | null;
   realized_net_profit: number;
   floating_profit: number;
   open_position_swap: number;
@@ -161,6 +173,9 @@ function createTrade(
     commission: 0,
     swap: 0,
     fees: 0,
+    stopLoss: null,
+    takeProfit: null,
+    tradeComment: String(deal.comment ?? "").trim() || null,
     balanceAtEntry:
       accountBalanceAtEntry !== null &&
       Number.isFinite(accountBalanceAtEntry) &&
@@ -197,6 +212,12 @@ function addEntry(
   trade.totalEntryLots += volume;
   trade.openLots += volume;
   trade.entryPriceVolume += finiteNumber(deal.price) * volume;
+  const stopLoss = nullableNumber(deal.stop_loss);
+  const takeProfit = nullableNumber(deal.take_profit);
+  if (stopLoss !== null && Math.abs(stopLoss) > EPSILON) trade.stopLoss = stopLoss;
+  if (takeProfit !== null && Math.abs(takeProfit) > EPSILON) trade.takeProfit = takeProfit;
+  const comment = String(deal.comment ?? "").trim();
+  if (comment) trade.tradeComment = comment;
   addFinancials(trade, deal, financialFraction, includeProfitAndSwap);
   pushUnique(trade.entryDealTickets, String(deal.deal_ticket));
   pushUnique(trade.allDealTickets, String(deal.deal_ticket));
@@ -218,6 +239,12 @@ function addExit(
   trade.exitBrokerUtcOffsetMinutes = nullableNumber(
     deal.broker_utc_offset_minutes,
   );
+  const stopLoss = nullableNumber(deal.stop_loss);
+  const takeProfit = nullableNumber(deal.take_profit);
+  if (stopLoss !== null && Math.abs(stopLoss) > EPSILON) trade.stopLoss = stopLoss;
+  if (takeProfit !== null && Math.abs(takeProfit) > EPSILON) trade.takeProfit = takeProfit;
+  const comment = String(deal.comment ?? "").trim();
+  if (comment) trade.tradeComment = comment;
   addFinancials(trade, deal, financialFraction, includeProfitAndSwap);
   pushUnique(trade.exitDealTickets, String(deal.deal_ticket));
   pushUnique(trade.allDealTickets, String(deal.deal_ticket));
@@ -246,6 +273,9 @@ function toDatabaseRow(
     realizedNetProfit +
     (isOpen ? floatingProfit + openPositionSwap : 0);
   const balance = trade.balanceAtEntry;
+  const positionStopLoss = nullableNumber(position?.stop_loss);
+  const positionTakeProfit = nullableNumber(position?.take_profit);
+  const positionComment = String(position?.comment ?? "").trim();
 
   return {
     account_id: accountId,
@@ -280,6 +310,15 @@ function toDatabaseRow(
     commission: trade.commission,
     swap: trade.swap,
     fees: trade.fees,
+    stop_loss:
+      isOpen && positionStopLoss !== null && Math.abs(positionStopLoss) > EPSILON
+        ? positionStopLoss
+        : trade.stopLoss,
+    take_profit:
+      isOpen && positionTakeProfit !== null && Math.abs(positionTakeProfit) > EPSILON
+        ? positionTakeProfit
+        : trade.takeProfit,
+    trade_comment: positionComment || trade.tradeComment,
     realized_net_profit: realizedNetProfit,
     floating_profit: floatingProfit,
     open_position_swap: openPositionSwap,
@@ -297,7 +336,7 @@ function toDatabaseRow(
     first_deal_ticket: trade.allDealTickets[0] ?? null,
     last_deal_ticket:
       trade.allDealTickets[trade.allDealTickets.length - 1] ?? null,
-    source_version: 2,
+    source_version: 3,
   };
 }
 

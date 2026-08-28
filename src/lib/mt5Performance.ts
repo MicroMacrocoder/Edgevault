@@ -28,6 +28,7 @@ type AutomaticMt5Trade = {
   weighted_entry_price: number | string | null;
   weighted_exit_price: number | string | null;
   net_profit: number | string;
+  pl_percentage?: number | string | null;
   account_balance_at_entry: number | string | null;
   updated_at?: string | null;
 };
@@ -94,20 +95,21 @@ export function convertAutomaticMt5TradesToPerformanceLogs({
         id: `mt5:${trade.account_id}:${trade.position_identifier}:${trade.trade_cycle}`,
         rowData: {
           Symbol: trade.symbol,
+          Status: trade.status,
           Direction: trade.direction,
-          Volume: finiteNumber(trade.total_entry_lots),
-          "Entry Time": trade.entry_at_utc,
-          "Exit Time": trade.exit_at_utc || "",
-          "Entry Price":
+          Lot: finiteNumber(trade.total_entry_lots),
+          "Ent Date": trade.entry_at_utc,
+          "Ext Date": trade.exit_at_utc || "",
+          Entry:
             trade.weighted_entry_price === null
               ? ""
               : finiteNumber(trade.weighted_entry_price),
-          "Exit Price":
+          Exit:
             trade.weighted_exit_price === null
               ? ""
               : finiteNumber(trade.weighted_exit_price),
-          "Profit/Loss Amount": finiteNumber(trade.net_profit),
-          Status: trade.status,
+          "P/L($)": finiteNumber(trade.net_profit),
+          "P/L(%)": finiteNumber(trade.pl_percentage),
           Source: "Automatic MT5",
         },
         createdAt: trade.entry_at_utc,
@@ -173,4 +175,3 @@ export async function getCombinedPerformanceTradeLogs({
     warnings,
   };
 }
-

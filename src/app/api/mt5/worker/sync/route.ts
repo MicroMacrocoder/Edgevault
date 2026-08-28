@@ -177,7 +177,7 @@ async function loadAllAccountDeals(
     const { data, error } = await supabaseAdmin
       .from("mt5_deals")
       .select(
-        "deal_ticket,order_ticket,position_identifier,time_msc,executed_at_utc,broker_time_text,broker_utc_offset_minutes,deal_type_code,entry_type_code,symbol,volume,price,commission,swap,profit,fee",
+        "deal_ticket,order_ticket,position_identifier,time_msc,executed_at_utc,broker_time_text,broker_utc_offset_minutes,deal_type_code,entry_type_code,symbol,volume,price,commission,swap,profit,fee,stop_loss,take_profit,comment",
       )
       .eq("account_id", accountId)
       .order("time_msc", { ascending: true })
@@ -205,7 +205,7 @@ async function refreshDerivedTrades({
   const { data: openPositionData, error: openPositionError } =
     await supabaseAdmin
       .from("mt5_positions")
-      .select("position_identifier,floating_profit,swap")
+      .select("position_identifier,floating_profit,swap,stop_loss,take_profit,comment")
       .eq("account_id", accountId)
       .eq("is_open", true);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -13,6 +13,15 @@ import {
 } from "recharts";
 import { supabase } from "@/lib/supabase";
 import { useDashboardPreferences } from "@/components/dashboard/DashboardPreferencesProvider";
+import AutomaticMT5TradeDetails, {
+  type AutomaticMt5DetailTrade,
+} from "@/components/dashboard/AutomaticMT5TradeDetails";
+import {
+  AUTOMATIC_MT5_CALCULATED_HEADERS,
+  AUTOMATIC_MT5_MANUAL_HEADERS,
+  DEFAULT_AUTOMATIC_MT5_OPTIONAL_HEADERS,
+  type AutomaticMt5Header,
+} from "@/lib/automaticMt5TradeLog";
 
 type Account = {
   id: string;
@@ -25,24 +34,8 @@ type Account = {
   status: string;
 };
 
-type Trade = {
-  id: string;
-  account_id: string;
-  position_identifier: string;
-  trade_cycle: number;
-  symbol: string;
-  status: "open" | "win" | "loss" | "breakeven";
-  direction: "buy" | "sell";
-  entry_at_utc: string;
-  exit_at_utc: string | null;
-  entry_broker_time_text: string | null;
-  exit_broker_time_text: string | null;
-  total_entry_lots: number | string;
-  weighted_entry_price: number | string | null;
-  weighted_exit_price: number | string | null;
-  net_profit: number | string;
+type Trade = AutomaticMt5DetailTrade & {
   account_balance_at_entry: number | string | null;
-  pl_percentage: number | string | null;
 };
 
 type DateRange = "today" | "7d" | "30d" | "3m" | "all" | "custom";
@@ -272,6 +265,15 @@ export default function AutomaticMT5TradeLogWorkspace() {
   const [message, setMessage] = useState("");
   const [showTimezoneSettings, setShowTimezoneSettings] = useState(false);
   const [timezoneSearch, setTimezoneSearch] = useState("");
+  const [selectedTradeId, setSelectedTradeId] = useState("");
+  const [showDetailSettings, setShowDetailSettings] = useState(false);
+  const [optionalHeaders, setOptionalHeaders] = useState<AutomaticMt5Header[]>(
+    DEFAULT_AUTOMATIC_MT5_OPTIONAL_HEADERS,
+  );
+  const [sessionTimezone, setSessionTimezone] = useState("UTC");
+  const [newCustomHeaderName, setNewCustomHeaderName] = useState("");
+  const [savingDetailSettings, setSavingDetailSettings] = useState(false);
+  const settingsInitialized = useRef(false);
 
   const availableTimezones = useMemo(() => {
     const supported =
@@ -329,6 +331,19 @@ export default function AutomaticMT5TradeLogWorkspace() {
     }
     setAccounts(result.accounts ?? []);
     setTrades(result.trades ?? []);
+    if (!settingsInitialized.current) {
+      if (result.settings) {
+        setOptionalHeaders(
+          Array.isArray(result.settings.optional_headers)
+            ? result.settings.optional_headers
+            : DEFAULT_AUTOMATIC_MT5_OPTIONAL_HEADERS,
+        );
+        setSessionTimezone(result.settings.session_timezone || "UTC");
+      } else {
+        setOptionalHeaders(DEFAULT_AUTOMATIC_MT5_OPTIONAL_HEADERS);
+      }
+      settingsInitialized.current = true;
+    }
     setLastUpdatedAt(new Date());
     setMessage("");
     setLoading(false);
@@ -344,6 +359,103 @@ export default function AutomaticMT5TradeLogWorkspace() {
       setRefreshing(false);
     }
   }, [loadTrades]);
+
+  const optionalHeaderIds = useMemo(
+    () => new Set(optionalHeaders.map((header) => header.id)),
+    [optionalHeaders],
+  );
+
+  const toggleOptionalHeader = useCallback((header: AutomaticMt5Header) => {
+    setOptionalHeaders((current) =>
+      current.some((item) => item.id === header.id)
+        ? current.filter((item) => item.id !== header.id)
+        : [...current, header],
+    );
+  }, []);
+
+  const addCustomManualHeader = useCallback(() => {
+    const name = newCustomHeaderName.trim();
+    if (!name) {
+      setMessage("Type a custom header name first.");
+      return;
+    }
+    if (optionalHeaders.some((header) => header.name.toLowerCase() === name.toLowerCase())) {
+      setMessage("That optional header already exists.");
+      return;
+    }
+    setOptionalHeaders((current) => [
+      ...current,
+      {
+        id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        name,
+        group: "manual",
+        type: "text",
+      },
+    ]);
+    setNewCustomHeaderName("");
+    setMessage(`Added “${name}” to the shared Trade Details layout. Save the layout to keep it.`);
+  }, [newCustomHeaderName, optionalHeaders]);
+
+  const saveDetailSettings = useCallback(async () => {
+    setSavingDetailSettings(true);
+    setMessage("");
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) throw new Error("Log in to save Trade Details settings.");
+      const response = await fetch("/api/mt5/trades/custom-fields", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ optionalHeaders, sessionTimezone }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || "Could not save Trade Details settings.");
+      }
+      setOptionalHeaders(result.optionalHeaders ?? optionalHeaders);
+      setSessionTimezone(result.sessionTimezone || sessionTimezone);
+      setMessage("Shared Trade Details layout saved for every MT5 account.");
+      setShowDetailSettings(false);
+    } catch (error: any) {
+      setMessage(error?.message || "Could not save Trade Details settings.");
+    } finally {
+      setSavingDetailSettings(false);
+    }
+  }, [optionalHeaders, sessionTimezone]);
+
+  const saveTradeFields = useCallback(
+    async (tradeId: string, customFields: Record<string, any>) => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) return false;
+        const response = await fetch("/api/mt5/trades/custom-fields", {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ tradeId, customFields }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result?.success) return false;
+        setTrades((current) =>
+          current.map((trade) =>
+            trade.id === tradeId
+              ? { ...trade, custom_fields: result.customFields }
+              : trade,
+          ),
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -514,6 +626,23 @@ export default function AutomaticMT5TradeLogWorkspace() {
     [effectiveTimezone, selectedAccountId, timezonePreference.timezoneMode],
   );
 
+  const selectedTrade = trades.find((trade) => trade.id === selectedTradeId);
+  if (selectedTrade) {
+    const serialIndex = filteredTrades.findIndex((trade) => trade.id === selectedTrade.id);
+    return (
+      <AutomaticMT5TradeDetails
+        trade={selectedTrade}
+        serialNumber={serialIndex >= 0 ? serialIndex + 1 : 1}
+        account={accountMap.get(selectedTrade.account_id)}
+        optionalHeaders={optionalHeaders}
+        sessionTimezone={sessionTimezone}
+        formatTradeDate={(trade, kind) => formatTradeDate(trade as Trade, kind)}
+        onBack={() => setSelectedTradeId("")}
+        onSaveFields={saveTradeFields}
+      />
+    );
+  }
+
   return (
     <div className="space-y-5">
       <Panel className="p-6">
@@ -589,6 +718,13 @@ export default function AutomaticMT5TradeLogWorkspace() {
           ) : null}
           <button
             type="button"
+            onClick={() => setShowDetailSettings((current) => !current)}
+            className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-200"
+          >
+            Configure Trade Details
+          </button>
+          <button
+            type="button"
             onClick={() => setShowTimezoneSettings((current) => !current)}
             className="ml-auto rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-200"
           >
@@ -620,6 +756,76 @@ export default function AutomaticMT5TradeLogWorkspace() {
               : "Waiting for the first update"}
           </p>
         </div>
+
+        {showDetailSettings ? (
+          <div className="mt-4 rounded-xl border border-cyan-400/20 bg-slate-950/90 p-5">
+            <div>
+              <h2 className="text-base font-black text-white">Shared Trade Details Layout</h2>
+              <p className="mt-1 text-xs text-slate-400">
+                The same optional fields will appear for trades from every MT5 account. The 13 required table headers remain locked.
+              </p>
+            </div>
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-300">Manual Builder Headers</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {AUTOMATIC_MT5_MANUAL_HEADERS.map((header) => (
+                    <label key={header.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-200">
+                      <input type="checkbox" checked={optionalHeaderIds.has(header.id)} onChange={() => toggleOptionalHeader(header)} className="h-4 w-4 accent-cyan-400" />
+                      {header.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-300">Automatic Builder Headers</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {AUTOMATIC_MT5_CALCULATED_HEADERS.map((header) => (
+                    <label key={header.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-200">
+                      <input type="checkbox" checked={optionalHeaderIds.has(header.id)} onChange={() => toggleOptionalHeader(header)} className="h-4 w-4 accent-emerald-400" />
+                      {header.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Additional Manual Header</p>
+                <div className="mt-3 flex gap-2">
+                  <input value={newCustomHeaderName} maxLength={60} onChange={(event) => setNewCustomHeaderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addCustomManualHeader(); }} placeholder="Type a header name" className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+                  <button type="button" onClick={addCustomManualHeader} className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-xs font-bold text-cyan-200">Add</button>
+                </div>
+                {optionalHeaders.some((header) => header.id.startsWith("custom-")) ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {optionalHeaders.filter((header) => header.id.startsWith("custom-")).map((header) => (
+                      <button key={header.id} type="button" onClick={() => toggleOptionalHeader(header)} className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs text-red-200">
+                        {header.name} ×
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Session Formula Timezone</span>
+                <select value={sessionTimezone} onChange={(event) => setSessionTimezone(event.target.value)} className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
+                  {availableTimezones.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button type="button" onClick={() => void saveDetailSettings()} disabled={savingDetailSettings} className="rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-5 py-3 text-sm font-black text-black disabled:opacity-50">
+                {savingDetailSettings ? "Saving..." : "Save Shared Layout"}
+              </button>
+              <button type="button" onClick={() => setShowDetailSettings(false)} className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-300">Close</button>
+            </div>
+          </div>
+        ) : null}
 
         {showTimezoneSettings ? (
           <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/90 p-4">
@@ -704,20 +910,34 @@ export default function AutomaticMT5TradeLogWorkspace() {
         {!loading && !customRangeInvalid && !filteredTrades.length ? <p className="p-5 text-sm text-slate-400">No MT5 trades match this account and date range.</p> : null}
         {!customRangeInvalid && filteredTrades.length ? (
           <div className="overflow-x-auto">
-            <table className="min-w-[1180px] w-full text-left text-sm">
+            <table className="min-w-[1480px] w-full text-left text-sm">
               <thead className="bg-slate-950 text-xs uppercase tracking-[0.12em] text-slate-500">
                 <tr>
                   {selectedAccountId === "all" ? <th className="px-4 py-3">Account</th> : null}
-                  <th className="px-4 py-3">Ent Date</th><th className="px-4 py-3">Ext Date</th><th className="px-4 py-3">Symbol</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Direction</th><th className="px-4 py-3">Lot</th><th className="px-4 py-3">Entry</th><th className="px-4 py-3">Exit</th><th className="px-4 py-3">P/L($)</th><th className="px-4 py-3">P/L(%)</th>
+                  <th className="px-4 py-3">S/N</th><th className="px-4 py-3">Ent Date</th><th className="px-4 py-3">Ext Date</th><th className="px-4 py-3">Symbol</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Direction</th><th className="px-4 py-3">Lot</th><th className="px-4 py-3">Entry</th><th className="px-4 py-3">Stop Loss</th><th className="px-4 py-3">Take Profit</th><th className="px-4 py-3">Exit</th><th className="px-4 py-3">P/L($)</th><th className="px-4 py-3">P/L(%)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 bg-slate-950/50 text-slate-200">
-                {filteredTrades.map((trade) => {
+                {filteredTrades.map((trade, index) => {
                   const account = accountMap.get(trade.account_id);
                   const net = numberValue(trade.net_profit);
                   return (
-                    <tr key={trade.id}>
+                    <tr
+                      key={trade.id}
+                      tabIndex={0}
+                      role="button"
+                      onClick={() => setSelectedTradeId(trade.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedTradeId(trade.id);
+                        }
+                      }}
+                      className="cursor-pointer transition hover:bg-cyan-400/5 focus:bg-cyan-400/10 focus:outline-none"
+                      title="Open Trade Details"
+                    >
                       {selectedAccountId === "all" ? <td className="px-4 py-3 text-xs">{account?.login || "—"}</td> : null}
+                      <td className="px-4 py-3 text-slate-500">{index + 1}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{formatTradeDate(trade, "entry")}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{formatTradeDate(trade, "exit")}</td>
                       <td className="px-4 py-3 font-bold text-white">{trade.symbol}</td>
@@ -725,6 +945,8 @@ export default function AutomaticMT5TradeLogWorkspace() {
                       <td className={`px-4 py-3 font-bold capitalize ${trade.direction === "buy" ? "text-emerald-400" : "text-red-400"}`}>{trade.direction}</td>
                       <td className="px-4 py-3">{numberValue(trade.total_entry_lots).toFixed(2)}</td>
                       <td className="px-4 py-3">{price(trade.weighted_entry_price)}</td>
+                      <td className="px-4 py-3">{price(trade.stop_loss)}</td>
+                      <td className="px-4 py-3">{price(trade.take_profit)}</td>
                       <td className="px-4 py-3">{price(trade.weighted_exit_price)}</td>
                       <td className={`px-4 py-3 font-bold ${net >= 0 ? "text-emerald-400" : "text-red-400"}`}>{money(net, account?.currency || "USD")}</td>
                       <td className={`px-4 py-3 font-bold ${numberValue(trade.pl_percentage) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{numberValue(trade.pl_percentage).toFixed(2)}%</td>
