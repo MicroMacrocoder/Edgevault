@@ -7,10 +7,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   supabase,
-  getUserTradeLogsWithRows,
   getUserJournalEntries,
   getUserTradeLogTemplates,
 } from "@/lib/supabase";
+import { getCombinedPerformanceTradeLogs } from "@/lib/mt5Performance";
 import {
   calculatePerformanceMetrics,
   formatMoney,
@@ -808,22 +808,17 @@ function OverviewSection({
 
     try {
       const { data } = await supabase.auth.getSession();
-      const user = data?.session?.user ?? null;
+      const session = data?.session ?? null;
+      const user = session?.user ?? null;
 
-      if (user) {
-        const { error, tradeLogs: loadedTradeLogs } =
-          await getUserTradeLogsWithRows(user.id);
+      if (user && session?.access_token) {
+        const result = await getCombinedPerformanceTradeLogs({
+          userId: user.id,
+          accessToken: session.access_token,
+        });
 
-        if (error) {
-          setTradeLogs([]);
-          setPerformanceMessage(
-            "Could not load trade log performance preview.",
-          );
-          setIsLoadingPerformance(false);
-          return;
-        }
-
-        setTradeLogs(loadedTradeLogs || []);
+        setTradeLogs(result.tradeLogs);
+        setPerformanceMessage(result.warnings.join(" "));
         setIsLoadingPerformance(false);
         return;
       }
@@ -947,6 +942,12 @@ function OverviewSection({
   useEffect(() => {
     void loadDashboardPerformance();
     void loadDashboardJournalWidgets();
+
+    const performanceInterval = window.setInterval(() => {
+      void loadDashboardPerformance();
+    }, 30_000);
+
+    return () => window.clearInterval(performanceInterval);
   }, []);
 
   useEffect(() => {

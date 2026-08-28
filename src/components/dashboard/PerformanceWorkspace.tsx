@@ -25,7 +25,8 @@ import {
   RefreshCw,
   TrendingUp,
 } from "lucide-react";
-import { supabase, getUserTradeLogsWithRows } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { getCombinedPerformanceTradeLogs } from "@/lib/mt5Performance";
 import {
   calculatePerformanceMetrics,
   formatMoney,
@@ -133,23 +134,19 @@ export default function PerformanceWorkspace() {
 
     try {
       const { data } = await supabase.auth.getSession();
-      const user = data?.session?.user ?? null;
+      const session = data?.session ?? null;
+      const user = session?.user ?? null;
 
       setCurrentUser(user);
 
-      if (user) {
-        const { error, tradeLogs: loadedTradeLogs } = await getUserTradeLogsWithRows(
-          user.id
-        );
+      if (user && session?.access_token) {
+        const result = await getCombinedPerformanceTradeLogs({
+          userId: user.id,
+          accessToken: session.access_token,
+        });
 
-        if (error) {
-          setTradeLogs([]);
-          setMessage("Could not load performance data from your trade logs.");
-          setIsLoading(false);
-          return;
-        }
-
-        setTradeLogs(loadedTradeLogs || []);
+        setTradeLogs(result.tradeLogs);
+        setMessage(result.warnings.join(" "));
         setIsLoading(false);
         return;
       }
@@ -182,8 +179,13 @@ export default function PerformanceWorkspace() {
       }
     });
 
+    const performanceInterval = window.setInterval(() => {
+      if (mounted) void loadPerformanceData();
+    }, 30_000);
+
     return () => {
       mounted = false;
+      window.clearInterval(performanceInterval);
       subscription.unsubscribe();
     };
   }, []);
@@ -236,8 +238,8 @@ export default function PerformanceWorkspace() {
             </h1>
 
             <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-400">
-              Select one trade log or view your general overview. Metrics are
-              calculated from saved and synced trade log rows.
+              Select one manual or automatic MT5 Trade Log, or combine every
+              source in the general overview.
             </p>
 
             <p className="mt-3 text-sm font-medium text-slate-300">

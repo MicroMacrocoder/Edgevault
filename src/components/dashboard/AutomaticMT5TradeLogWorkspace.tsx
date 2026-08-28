@@ -1,6 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { supabase } from "@/lib/supabase";
 import { useDashboardPreferences } from "@/components/dashboard/DashboardPreferencesProvider";
 
@@ -132,7 +142,15 @@ function Metric({
   );
 }
 
-function CumulativeChart({ trades }: { trades: Trade[] }) {
+function CumulativeChart({
+  trades,
+  currency,
+  formatDate,
+}: {
+  trades: Trade[];
+  currency: string | null;
+  formatDate: (trade: Trade, kind: "entry" | "exit") => string;
+}) {
   const points = useMemo(() => {
     const closed = trades
       .filter((trade) => trade.status !== "open")
@@ -142,42 +160,97 @@ function CumulativeChart({ trades }: { trades: Trade[] }) {
           new Date(right.exit_at_utc || right.entry_at_utc).getTime(),
       );
     let cumulative = 0;
-    return closed.map((trade) => {
-      cumulative += numberValue(trade.net_profit);
-      return cumulative;
-    });
-  }, [trades]);
+    return [
+      {
+        trade: "Start",
+        date: "Starting point",
+        result: 0,
+        cumulative: 0,
+      },
+      ...closed.map((trade, index) => {
+        cumulative += numberValue(trade.net_profit);
+        return {
+          trade: `Trade ${index + 1}`,
+          date: formatDate(trade, "exit"),
+          result: numberValue(trade.net_profit),
+          cumulative,
+        };
+      }),
+    ];
+  }, [formatDate, trades]);
 
-  const path = useMemo(() => {
-    if (!points.length) return "";
-    const minimum = Math.min(0, ...points);
-    const maximum = Math.max(0, ...points);
-    const spread = Math.max(1, maximum - minimum);
-    return points
-      .map((value, index) => {
-        const x = points.length === 1 ? 100 : (index / (points.length - 1)) * 200;
-        const y = 76 - ((value - minimum) / spread) * 64;
-        return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
-      })
-      .join(" ");
-  }, [points]);
+  const hasClosedTrades = points.length > 1;
 
   return (
-    <div className="h-24 rounded-xl border border-slate-800 bg-slate-950/70 p-2">
-      {path ? (
-        <svg viewBox="0 0 200 84" className="h-full w-full" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="mt5-pl-gradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d={`${path} L200,84 L0,84 Z`} fill="url(#mt5-pl-gradient)" />
-          <path d={path} fill="none" stroke="#22d3ee" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-        </svg>
+    <div className="h-64 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+      {!currency ? (
+        <div className="flex h-full items-center justify-center px-6 text-center text-sm text-amber-300">
+          Select one account to chart P/L when saved accounts use different currencies.
+        </div>
+      ) : hasClosedTrades ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={points} margin={{ top: 12, right: 12, left: 4, bottom: 4 }}>
+            <defs>
+              <linearGradient id="automaticMt5CumulativeFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
+            <XAxis
+              dataKey="trade"
+              stroke="#64748b"
+              tick={{ fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              orientation="right"
+              stroke="#64748b"
+              tick={{ fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              width={72}
+              tickFormatter={(value) =>
+                new Intl.NumberFormat(undefined, {
+                  style: "currency",
+                  currency,
+                  notation: "compact",
+                  maximumFractionDigits: 1,
+                }).format(Number(value || 0))
+              }
+            />
+            <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 4" />
+            <Tooltip
+              labelFormatter={(_label, payload) =>
+                payload?.[0]?.payload?.date || "Starting point"
+              }
+              formatter={(value: number, name: string, item: any) => [
+                money(Number(value || 0), currency),
+                name === "cumulative"
+                  ? `Cumulative P/L · Result ${money(Number(item?.payload?.result || 0), currency)}`
+                  : name,
+              ]}
+              contentStyle={{
+                backgroundColor: "#020617",
+                border: "1px solid #334155",
+                borderRadius: "12px",
+                color: "#e2e8f0",
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="cumulative"
+              stroke="#22d3ee"
+              strokeWidth={3}
+              fill="url(#automaticMt5CumulativeFill)"
+              activeDot={{ r: 5 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       ) : (
-        <div className="flex h-full items-center justify-center text-xs text-slate-500">
-          Closed-trade P/L will appear here.
+        <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          The cumulative P/L chart will start after the first MT5 trade closes.
         </div>
       )}
     </div>
@@ -194,6 +267,8 @@ export default function AutomaticMT5TradeLogWorkspace() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [message, setMessage] = useState("");
   const [showTimezoneSettings, setShowTimezoneSettings] = useState(false);
   const [timezoneSearch, setTimezoneSearch] = useState("");
@@ -254,9 +329,21 @@ export default function AutomaticMT5TradeLogWorkspace() {
     }
     setAccounts(result.accounts ?? []);
     setTrades(result.trades ?? []);
+    setLastUpdatedAt(new Date());
     setMessage("");
     setLoading(false);
   }, [selectedAccountId]);
+
+  const refreshTrades = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadTrades();
+    } catch (error: any) {
+      setMessage(error?.message || "Could not refresh automatic MT5 trades.");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadTrades]);
 
   useEffect(() => {
     setLoading(true);
@@ -318,6 +405,17 @@ export default function AutomaticMT5TradeLogWorkspace() {
     selectedBrokerOffset,
     trades,
   ]);
+
+  const customRangeInvalid =
+    dateRange === "custom" &&
+    Boolean(customFrom && customTo && customFrom > customTo);
+
+  const resetFilters = useCallback(() => {
+    setSelectedAccountId("all");
+    setDateRange("all");
+    setCustomFrom("");
+    setCustomTo("");
+  }, []);
 
   const metrics = useMemo(() => {
     const wins = filteredTrades.filter((trade) => trade.status === "win");
@@ -429,18 +527,29 @@ export default function AutomaticMT5TradeLogWorkspace() {
               Execution facts are synchronized directly from your saved MT5 accounts.
             </p>
           </div>
-          <select
-            value={selectedAccountId}
-            onChange={(event) => setSelectedAccountId(event.target.value)}
-            className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white"
-          >
-            <option value="all">All Accounts</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.account_name || account.company || "MT5"} · {account.login}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <select
+              value={selectedAccountId}
+              onChange={(event) => setSelectedAccountId(event.target.value)}
+              className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white"
+              aria-label="Filter by MT5 account"
+            >
+              <option value="all">All Accounts</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.account_name || account.company || "MT5"} · {account.login}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void refreshTrades()}
+              disabled={refreshing}
+              className="rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-3 text-sm font-bold text-cyan-200 disabled:cursor-wait disabled:opacity-60"
+            >
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -469,6 +578,15 @@ export default function AutomaticMT5TradeLogWorkspace() {
           >
             Custom
           </button>
+          {selectedAccountId !== "all" || dateRange !== "all" ? (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold uppercase text-slate-300"
+            >
+              Reset filters
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setShowTimezoneSettings((current) => !current)}
@@ -479,11 +597,29 @@ export default function AutomaticMT5TradeLogWorkspace() {
         </div>
 
         {dateRange === "custom" ? (
-          <div className="mt-3 flex flex-wrap gap-3">
-            <input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
-            <input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+              From
+              <input type="date" value={customFrom} max={customTo || undefined} onChange={(event) => setCustomFrom(event.target.value)} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+            </label>
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+              To
+              <input type="date" value={customTo} min={customFrom || undefined} onChange={(event) => setCustomTo(event.target.value)} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+            </label>
+            {customRangeInvalid ? (
+              <p className="text-xs font-semibold text-red-300">The From date must be before the To date.</p>
+            ) : null}
           </div>
         ) : null}
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <p>Showing {customRangeInvalid ? 0 : filteredTrades.length} of {trades.length} trades</p>
+          <p>
+            {lastUpdatedAt
+              ? `Updated ${lastUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+              : "Waiting for the first update"}
+          </p>
+        </div>
 
         {showTimezoneSettings ? (
           <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/90 p-4">
@@ -521,7 +657,11 @@ export default function AutomaticMT5TradeLogWorkspace() {
 
       <Panel className="p-6">
         <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <CumulativeChart trades={filteredTrades} />
+          <CumulativeChart
+            trades={customRangeInvalid ? [] : filteredTrades}
+            currency={aggregateCurrency}
+            formatDate={formatTradeDate}
+          />
           <div className="grid grid-cols-2 gap-3">
             <Metric
               label="P/L($)"
@@ -560,8 +700,9 @@ export default function AutomaticMT5TradeLogWorkspace() {
       <Panel className="overflow-hidden">
         {message ? <p className="p-5 text-sm text-amber-200">{message}</p> : null}
         {loading ? <p className="p-5 text-sm text-slate-400">Loading automatic MT5 trades...</p> : null}
-        {!loading && !filteredTrades.length ? <p className="p-5 text-sm text-slate-400">No MT5 trades match this account and date range.</p> : null}
-        {filteredTrades.length ? (
+        {!loading && customRangeInvalid ? <p className="p-5 text-sm text-red-300">Correct the custom date range to display trades.</p> : null}
+        {!loading && !customRangeInvalid && !filteredTrades.length ? <p className="p-5 text-sm text-slate-400">No MT5 trades match this account and date range.</p> : null}
+        {!customRangeInvalid && filteredTrades.length ? (
           <div className="overflow-x-auto">
             <table className="min-w-[1180px] w-full text-left text-sm">
               <thead className="bg-slate-950 text-xs uppercase tracking-[0.12em] text-slate-500">
