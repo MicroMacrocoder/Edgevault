@@ -22,6 +22,15 @@ export interface TradeLogWithRows {
   createdAt?: string;
   updatedAt?: string;
   rows?: TradeLogRow[];
+  balanceEvents?: BalanceEvent[];
+}
+
+export interface BalanceEvent {
+  id: string;
+  date: string;
+  amount: number;
+  type?: string;
+  comment?: string;
 }
 
 export interface NormalizedTrade {
@@ -48,6 +57,8 @@ export interface EquityCurvePoint {
   cumulativeProfit: number;
   balance: number;
   returnPercent: number;
+  cashFlow?: number;
+  eventType?: "trade" | "balance";
 }
 
 export interface BreakdownItem {
@@ -531,6 +542,19 @@ export function calculatePerformanceMetrics({
     return trade.tradeDate.getTime() >= startDate.getTime();
   });
 
+  const balanceEvents = selectedLogs
+    .flatMap((tradeLog) => tradeLog.balanceEvents ?? [])
+    .map((event) => ({
+      ...event,
+      parsedDate: parseTradeDate(event.date),
+      amount: Number.isFinite(Number(event.amount)) ? Number(event.amount) : 0,
+    }))
+    .filter((event) => {
+      if (!startDate) return true;
+      if (!event.parsedDate) return true;
+      return event.parsedDate.getTime() >= startDate.getTime();
+    });
+
   const sortedTrades = [...normalizedTrades].sort((a, b) => {
     const aTime = a.tradeDate?.getTime() || 0;
     const bTime = b.tradeDate?.getTime() || 0;
@@ -568,24 +592,53 @@ export function calculatePerformanceMetrics({
   const sellNetProfit = sellTrades.reduce((sum, trade) => sum + trade.profitLoss, 0);
 
   let cumulativeProfit = 0;
+  let cumulativeCashFlow = 0;
+  let tradeNumber = 0;
+  const timeline = [
+    ...sortedTrades.map((trade) => ({
+      kind: "trade" as const,
+      date: trade.tradeDate,
+      trade,
+      amount: trade.profitLoss,
+    })),
+    ...balanceEvents.map((event) => ({
+      kind: "balance" as const,
+      date: event.parsedDate,
+      event,
+      amount: event.amount,
+    })),
+  ].sort((left, right) =>
+    (left.date?.getTime() || 0) - (right.date?.getTime() || 0),
+  );
 
-  const equityCurve = sortedTrades.map((trade, index) => {
-    cumulativeProfit += trade.profitLoss;
-    const balance = initialBalance + cumulativeProfit;
+  const equityCurve = timeline.map((item) => {
+    if (item.kind === "trade") {
+      tradeNumber += 1;
+      cumulativeProfit += item.amount;
+    } else {
+      cumulativeCashFlow += item.amount;
+    }
+    const balance = initialBalance + cumulativeProfit + cumulativeCashFlow;
     const returnPercent = initialBalance > 0 ? (cumulativeProfit / initialBalance) * 100 : 0;
 
     return {
-      label: formatPointDate(trade.tradeDate),
-      date: trade.tradeDate ? trade.tradeDate.toISOString() : "",
-      tradeNumber: index + 1,
-      profitLoss: trade.profitLoss,
+      label: formatPointDate(item.date),
+      date: item.date ? item.date.toISOString() : "",
+      tradeNumber,
+      profitLoss: item.kind === "trade" ? item.amount : 0,
+      cashFlow: item.kind === "balance" ? item.amount : 0,
+      eventType: item.kind,
       cumulativeProfit,
       balance,
       returnPercent,
     };
   });
 
-  const currentBalance = initialBalance + netProfit;
+  const totalCashFlow = balanceEvents.reduce(
+    (sum, event) => sum + event.amount,
+    0,
+  );
+  const currentBalance = initialBalance + netProfit + totalCashFlow;
   const totalReturnPercent = initialBalance > 0 ? (netProfit / initialBalance) * 100 : 0;
 
   const recentTrades = [...sortedTrades]

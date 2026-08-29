@@ -30,12 +30,26 @@ type Account = {
   company?: string | null;
   account_name?: string | null;
   currency?: string | null;
+  balance?: number | string | null;
+  equity?: number | string | null;
   broker_utc_offset_minutes?: number | null;
   status: string;
 };
 
 type Trade = AutomaticMt5DetailTrade & {
   account_balance_at_entry: number | string | null;
+};
+
+type BalanceEvent = {
+  account_id: string;
+  deal_ticket: string;
+  time_msc: number | string;
+  executed_at_utc: string;
+  broker_time_text?: string | null;
+  broker_utc_offset_minutes?: number | null;
+  deal_type?: string | null;
+  amount: number | string;
+  comment?: string | null;
 };
 
 type DateRange = "today" | "7d" | "30d" | "3m" | "all" | "custom";
@@ -259,6 +273,7 @@ export default function AutomaticMT5TradeLogWorkspace({
   const timezonePreference = preferences.tradeLog;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [balanceEvents, setBalanceEvents] = useState<BalanceEvent[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState(
     initialAccountId || "all",
   );
@@ -337,6 +352,7 @@ export default function AutomaticMT5TradeLogWorkspace({
     }
     setAccounts(result.accounts ?? []);
     setTrades(result.trades ?? []);
+    setBalanceEvents(result.balanceEvents ?? []);
     if (!settingsInitialized.current) {
       if (result.settings) {
         setOptionalHeaders(
@@ -524,6 +540,50 @@ export default function AutomaticMT5TradeLogWorkspace({
     trades,
   ]);
 
+  const filteredBalanceEvents = useMemo(() => {
+    const now = new Date();
+    const todayKey =
+      selectedBrokerOffset === null
+        ? dateKeyInTimezone(now, effectiveTimezone ?? undefined)
+        : dateKeyAtFixedOffset(now, selectedBrokerOffset);
+    const cutoffKey =
+      dateRange === "7d"
+        ? moveDateKey(todayKey, { days: -6 })
+        : dateRange === "30d"
+          ? moveDateKey(todayKey, { days: -29 })
+          : dateRange === "3m"
+            ? moveDateKey(todayKey, { months: -3 })
+            : null;
+
+    return balanceEvents.filter((event) => {
+      const key =
+        timezonePreference.timezoneMode === "broker" &&
+        selectedAccountId !== "all" &&
+        event.broker_time_text
+          ? event.broker_time_text.slice(0, 10).replaceAll(".", "-")
+          : dateKeyInTimezone(
+              new Date(event.executed_at_utc),
+              effectiveTimezone ?? undefined,
+            );
+      if (dateRange === "today") return key === todayKey;
+      if (cutoffKey) return key >= cutoffKey && key <= todayKey;
+      if (dateRange === "custom") {
+        if (customFrom && key < customFrom) return false;
+        if (customTo && key > customTo) return false;
+      }
+      return true;
+    });
+  }, [
+    balanceEvents,
+    customFrom,
+    customTo,
+    dateRange,
+    effectiveTimezone,
+    selectedAccountId,
+    selectedBrokerOffset,
+    timezonePreference.timezoneMode,
+  ]);
+
   const customRangeInvalid =
     dateRange === "custom" &&
     Boolean(customFrom && customTo && customFrom > customTo);
@@ -563,6 +623,10 @@ export default function AutomaticMT5TradeLogWorkspace({
     const plPercentage = startingBalance
       ? (netProfit / startingBalance) * 100
       : null;
+    const netCashFlow = filteredBalanceEvents.reduce(
+      (total, event) => total + numberValue(event.amount),
+      0,
+    );
     return {
       wins: wins.length,
       losses: losses.length,
@@ -578,8 +642,9 @@ export default function AutomaticMT5TradeLogWorkspace({
         : 0,
       netProfit,
       plPercentage,
+      netCashFlow,
     };
-  }, [filteredTrades]);
+  }, [filteredBalanceEvents, filteredTrades]);
 
   const accountMap = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
@@ -603,6 +668,21 @@ export default function AutomaticMT5TradeLogWorkspace({
     (filteredCurrencies.size === 1
       ? Array.from(filteredCurrencies)[0]
       : null);
+  const displayedAccounts = useMemo(
+    () =>
+      selectedAccountId === "all"
+        ? accounts
+        : accounts.filter((account) => account.id === selectedAccountId),
+    [accounts, selectedAccountId],
+  );
+  const displayedBalance = displayedAccounts.reduce(
+    (total, account) => total + numberValue(account.balance),
+    0,
+  );
+  const displayedEquity = displayedAccounts.reduce(
+    (total, account) => total + numberValue(account.equity),
+    0,
+  );
 
   const formatTradeDate = useCallback(
     (trade: Trade, kind: "entry" | "exit") => {
@@ -891,6 +971,19 @@ export default function AutomaticMT5TradeLogWorkspace({
                   ? `${metrics.plPercentage.toFixed(2)}%`
                   : "—"
               }
+            />
+            <Metric
+              label="Balance"
+              value={aggregateCurrency ? money(displayedBalance, aggregateCurrency) : "Mixed currencies"}
+            />
+            <Metric
+              label="Equity"
+              value={aggregateCurrency ? money(displayedEquity, aggregateCurrency) : "Mixed currencies"}
+            />
+            <Metric
+              label="Net Cash Flow"
+              value={aggregateCurrency ? money(metrics.netCashFlow, aggregateCurrency) : "—"}
+              detail="Deposits, withdrawals and transfers"
             />
           </div>
         </div>

@@ -6,6 +6,9 @@ export const revalidate = 0;
 
 const TRADE_FIELDS =
   "id,account_id,position_identifier,trade_cycle,symbol,status,direction,entry_time_msc,exit_time_msc,entry_at_utc,exit_at_utc,entry_broker_time_text,exit_broker_time_text,entry_broker_utc_offset_minutes,exit_broker_utc_offset_minutes,total_entry_lots,total_exit_lots,open_lots,weighted_entry_price,weighted_exit_price,stop_loss,take_profit,trade_comment,gross_profit,commission,swap,fees,realized_net_profit,floating_profit,open_position_swap,net_profit,account_balance_at_entry,pl_percentage,entry_deal_count,exit_deal_count,entry_deal_tickets,exit_deal_tickets,all_deal_tickets,first_deal_ticket,last_deal_ticket,custom_fields,updated_at";
+const BALANCE_EVENT_FIELDS =
+  "account_id,deal_ticket,time_msc,executed_at_utc,broker_time_text,broker_utc_offset_minutes,deal_type_code,deal_type,profit,commission,swap,fee,comment";
+const BALANCE_EVENT_TYPE_CODES = [2, 3, 4, 5, 6, 12, 15, 16, 17];
 
 function jsonNoStore(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -75,10 +78,17 @@ export async function GET(request: NextRequest) {
     const selectedAccountIds =
       requestedAccount === "all" ? accountIds : [requestedAccount];
     if (!selectedAccountIds.length) {
-      return jsonNoStore({ success: true, accounts: [], trades: [], settings });
+      return jsonNoStore({
+        success: true,
+        accounts: [],
+        trades: [],
+        balanceEvents: [],
+        settings,
+      });
     }
 
     const rows: unknown[] = [];
+    const balanceEvents: any[] = [];
     const pageSize = 1000;
     for (let rangeStart = 0; ; rangeStart += pageSize) {
       let query = supabaseAdmin
@@ -94,6 +104,33 @@ export async function GET(request: NextRequest) {
       const { data, error } = await query;
       if (error) throw error;
       rows.push(...(data ?? []));
+      if (!data || data.length < pageSize) break;
+    }
+
+    for (let rangeStart = 0; ; rangeStart += pageSize) {
+      let query = supabaseAdmin
+        .from("mt5_deals")
+        .select(BALANCE_EVENT_FIELDS)
+        .in("account_id", selectedAccountIds)
+        .in("deal_type_code", BALANCE_EVENT_TYPE_CODES)
+        .order("time_msc", { ascending: true })
+        .order("deal_ticket", { ascending: true })
+        .range(rangeStart, rangeStart + pageSize - 1);
+      if (from) query = query.gte("executed_at_utc", from);
+      if (to) query = query.lte("executed_at_utc", to);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      balanceEvents.push(
+        ...(data ?? []).map((event: any) => ({
+          ...event,
+          amount:
+            Number(event.profit || 0) +
+            Number(event.commission || 0) +
+            Number(event.swap || 0) +
+            Number(event.fee || 0),
+        })),
+      );
       if (!data || data.length < pageSize) break;
     }
 
@@ -123,6 +160,7 @@ export async function GET(request: NextRequest) {
       selectedAccountId: requestedAccount,
       accounts: accountsWithBrokerTime,
       trades: rows,
+      balanceEvents,
       settings,
     });
   } catch (error: any) {

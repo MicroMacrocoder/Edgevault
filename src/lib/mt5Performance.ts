@@ -23,6 +23,7 @@ export type AutomaticMt5Trade = {
   status: "open" | "win" | "loss" | "breakeven";
   direction: "buy" | "sell";
   entry_at_utc: string;
+  entry_time_msc: number | string;
   exit_at_utc: string | null;
   total_entry_lots: number | string;
   weighted_entry_price: number | string | null;
@@ -33,11 +34,23 @@ export type AutomaticMt5Trade = {
   updated_at?: string | null;
 };
 
+export type AutomaticMt5BalanceEvent = {
+  account_id: string;
+  deal_ticket: string;
+  time_msc: number | string;
+  executed_at_utc: string;
+  broker_time_text?: string | null;
+  deal_type?: string | null;
+  amount: number | string;
+  comment?: string | null;
+};
+
 type AutomaticMt5Response = {
   success?: boolean;
   message?: string;
   accounts?: AutomaticMt5Account[];
   trades?: AutomaticMt5Trade[];
+  balanceEvents?: AutomaticMt5BalanceEvent[];
 };
 
 export type CombinedPerformanceTradeLogsResult = {
@@ -45,6 +58,7 @@ export type CombinedPerformanceTradeLogsResult = {
   warnings: string[];
   automaticAccounts: AutomaticMt5Account[];
   automaticTrades: AutomaticMt5Trade[];
+  automaticBalanceEvents: AutomaticMt5BalanceEvent[];
 };
 
 function finiteNumber(value: unknown) {
@@ -61,27 +75,49 @@ function automaticLogName(account: AutomaticMt5Account) {
 export function convertAutomaticMt5TradesToPerformanceLogs({
   accounts,
   trades,
+  balanceEvents = [],
 }: {
   accounts: AutomaticMt5Account[];
   trades: AutomaticMt5Trade[];
+  balanceEvents?: AutomaticMt5BalanceEvent[];
 }): TradeLogWithRows[] {
   return accounts.map((account) => {
-    const accountTrades = trades
-      .filter(
-        (trade) =>
-          trade.account_id === account.id && trade.status !== "open",
-      )
+    const allAccountTrades = trades
+      .filter((trade) => trade.account_id === account.id)
       .sort(
         (left, right) =>
           new Date(left.entry_at_utc).getTime() -
           new Date(right.entry_at_utc).getTime(),
       );
+    const accountTrades = allAccountTrades.filter(
+      (trade) => trade.status !== "open",
+    );
 
-    const firstBalance = accountTrades.find(
+    const firstTrade = allAccountTrades.find(
       (trade) =>
         trade.account_balance_at_entry !== null &&
         Number.isFinite(Number(trade.account_balance_at_entry)),
-    )?.account_balance_at_entry;
+    );
+    const firstBalance = firstTrade?.account_balance_at_entry;
+    const firstTradeTimeMsc = firstTrade
+      ? Number(firstTrade.entry_time_msc)
+      : null;
+    const accountBalanceEvents =
+      firstTradeTimeMsc === null || !Number.isFinite(firstTradeTimeMsc)
+        ? []
+        : balanceEvents
+            .filter(
+              (event) =>
+                event.account_id === account.id &&
+                Number(event.time_msc) >= firstTradeTimeMsc,
+            )
+            .map((event) => ({
+              id: `mt5-balance:${account.id}:${event.deal_ticket}`,
+              date: event.executed_at_utc,
+              amount: finiteNumber(event.amount),
+              type: event.deal_type || "balance_operation",
+              comment: event.comment || undefined,
+            }));
 
     return {
       id: `mt5:${account.id}`,
@@ -93,6 +129,7 @@ export function convertAutomaticMt5TradesToPerformanceLogs({
       accountCurrency: account.currency || "USD",
       createdAt: account.created_at || account.last_connected_at || undefined,
       updatedAt: account.updated_at || account.last_connected_at || undefined,
+      balanceEvents: accountBalanceEvents,
       rows: accountTrades.map((trade) => ({
         id: `mt5:${trade.account_id}:${trade.position_identifier}:${trade.trade_cycle}`,
         rowData: {
@@ -137,6 +174,7 @@ async function getAutomaticMt5Data(accessToken: string) {
   return {
     accounts: result.accounts ?? [],
     trades: result.trades ?? [],
+    balanceEvents: result.balanceEvents ?? [],
   };
 }
 
@@ -162,6 +200,7 @@ export async function getCombinedPerformanceTradeLogs({
   let automaticLogs: TradeLogWithRows[] = [];
   let automaticAccounts: AutomaticMt5Account[] = [];
   let automaticTrades: AutomaticMt5Trade[] = [];
+  let automaticBalanceEvents: AutomaticMt5BalanceEvent[] = [];
 
   if (manualResult.status === "fulfilled") {
     if (manualResult.value?.error) {
@@ -176,9 +215,11 @@ export async function getCombinedPerformanceTradeLogs({
   if (automaticResult.status === "fulfilled") {
     automaticAccounts = automaticResult.value.accounts;
     automaticTrades = automaticResult.value.trades;
+    automaticBalanceEvents = automaticResult.value.balanceEvents;
     automaticLogs = convertAutomaticMt5TradesToPerformanceLogs({
       accounts: automaticAccounts,
       trades: automaticTrades,
+      balanceEvents: automaticBalanceEvents,
     });
   } else {
     warnings.push("Automatic MT5 trades could not be loaded.");
@@ -189,5 +230,6 @@ export async function getCombinedPerformanceTradeLogs({
     warnings,
     automaticAccounts,
     automaticTrades,
+    automaticBalanceEvents,
   };
 }
