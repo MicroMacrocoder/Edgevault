@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import TradeLogBuilderWorkspace from "@/components/dashboard/TradeLogBuilderWorkspace";
-import SavedTradeLogsWorkspace from "@/components/dashboard/SavedTradeLogsWorkspace";
+import TradeLogLibraryWorkspace from "@/components/dashboard/TradeLogLibraryWorkspace";
 import TradeLogTableWorkspace from "@/components/dashboard/TradeLogTableWorkspace";
 import AutomaticMT5TradeLogWorkspace from "@/components/dashboard/AutomaticMT5TradeLogWorkspace";
 
@@ -179,6 +179,9 @@ export default function TradeLogWorkspace({
   const [activeView, setActiveView] = useState<TradeLogView>("automatic");
   const [selectedLogId, setSelectedLogId] = useState("");
   const [builderEditLogId, setBuilderEditLogId] = useState("");
+  const [automaticAccountId, setAutomaticAccountId] = useState(
+    initialAutomaticAccountId || "all",
+  );
 
   function openNewBuilder() {
     setBuilderEditLogId("");
@@ -202,20 +205,25 @@ export default function TradeLogWorkspace({
     setActiveView("builder");
   }
 
+  function openAutomaticLog(accountId: string) {
+    setAutomaticAccountId(accountId);
+    setActiveView("automatic");
+  }
+
   if (activeView === "automatic") {
     return (
       <div className="space-y-4">
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={() => setActiveView("hub")}
+            onClick={openSavedLogs}
             className="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-300"
           >
-            Manual Trade Logs
+            Trade Log Library
           </button>
         </div>
         <AutomaticMT5TradeLogWorkspace
-          initialAccountId={initialAutomaticAccountId}
+          initialAccountId={automaticAccountId}
         />
       </div>
     );
@@ -244,10 +252,11 @@ export default function TradeLogWorkspace({
 
   if (activeView === "saved-logs") {
     return (
-      <SavedTradeLogsWorkspace
-        onBack={() => setActiveView("hub")}
+      <TradeLogLibraryWorkspace
+        onBack={() => setActiveView("automatic")}
         onCreateNewLog={openNewBuilder}
-        onOpenLog={openLog}
+        onOpenManualLog={openLog}
+        onOpenAutomaticLog={openAutomaticLog}
       />
     );
   }
