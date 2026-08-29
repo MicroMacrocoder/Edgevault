@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const supabaseAdmin = getSupabaseAdmin();
     const { data: job, error: jobError } = await supabaseAdmin
       .from("mt5_connection_jobs")
-      .select("id, account_id, created_at")
+      .select("id, account_id, action, created_at")
       .eq("id", jobId)
       .maybeSingle();
 
@@ -70,6 +70,66 @@ export async function POST(request: NextRequest) {
 
     const now = new Date().toISOString();
 
+    if (job.action === "disconnect") {
+      if (!success) {
+        const failureMessage = message || "The MT5 account could not be disconnected.";
+        await supabaseAdmin
+          .from("mt5_accounts")
+          .update({
+            status: "error",
+            status_message: failureMessage,
+            last_error: failureMessage,
+            updated_at: now,
+          })
+          .eq("id", job.account_id);
+        await supabaseAdmin
+          .from("mt5_connection_jobs")
+          .update({
+            status: "failed",
+            error_message: failureMessage,
+            completed_at: now,
+            updated_at: now,
+          })
+          .eq("id", jobId);
+        return NextResponse.json({ success: true });
+      }
+
+      const { data: disconnectedAccount, error: disconnectAccountError } =
+        await supabaseAdmin
+          .from("mt5_accounts")
+          .update({
+            status: "disconnected",
+            status_message:
+              message || "MT5 account disconnected. Its saved Trade Log was retained.",
+            last_error: null,
+            terminal_slot: null,
+            worker_id: null,
+            disconnected_at: now,
+            updated_at: now,
+          })
+          .eq("id", job.account_id)
+          .select("id")
+          .maybeSingle();
+      if (disconnectAccountError) throw disconnectAccountError;
+      if (!disconnectedAccount) {
+        throw new Error("The MT5 account row could not be disconnected.");
+      }
+
+      const { error: disconnectJobError } = await supabaseAdmin
+        .from("mt5_connection_jobs")
+        .update({
+          status: "completed",
+          result_json: {},
+          error_message: null,
+          completed_at: now,
+          updated_at: now,
+        })
+        .eq("id", jobId);
+      if (disconnectJobError) throw disconnectJobError;
+
+      return NextResponse.json({ success: true });
+    }
+
     if (success) {
       const { data: updatedAccount, error: accountError } = await supabaseAdmin
         .from("mt5_accounts")
@@ -88,6 +148,7 @@ export async function POST(request: NextRequest) {
           last_error: null,
           terminal_slot: terminalSlot,
           worker_id: workerId,
+          disconnected_at: null,
           last_connected_at: now,
           updated_at: now,
         })
@@ -132,7 +193,8 @@ export async function POST(request: NextRequest) {
           status: "error",
           status_message: failureMessage,
           last_error: failureMessage,
-          worker_id: workerId,
+          terminal_slot: null,
+          worker_id: null,
           updated_at: now,
         })
         .eq("id", job.account_id)

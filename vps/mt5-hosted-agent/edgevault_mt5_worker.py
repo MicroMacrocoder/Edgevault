@@ -689,14 +689,57 @@ def main() -> int:
                 has_free_slot=free_slot is not None,
             )
             if job:
+                action = str(job.get("action") or "connect").strip().lower()
+                account_id = str(job.get("accountId") or "").strip()
                 matching_slot = next(
                     (
                         name
                         for name, session in sessions.items()
-                        if session.account_id == str(job.get("accountId") or "")
+                        if session.account_id == account_id
                     ),
                     None,
                 )
+
+                if action == "disconnect":
+                    target_slot = matching_slot
+                    configured_slot = str(job.get("terminalSlot") or "").strip()
+                    if not target_slot and configured_slot in SLOT_NAMES:
+                        configured_session = sessions.get(configured_slot)
+                        if configured_session and configured_session.account_id == account_id:
+                            target_slot = configured_slot
+                        elif configured_session is None:
+                            preset = read_preset_values(
+                                SLOT_ROOT / configured_slot / "MQL5" / "Presets" / "EdgeVaultBridge.set"
+                            )
+                            if preset.get("EdgeVaultAccountId", "").strip() == account_id:
+                                target_slot = configured_slot
+
+                    if target_slot:
+                        previous_session = sessions.pop(target_slot, None)
+                        if previous_session:
+                            previous_session.config_path.unlink(missing_ok=True)
+                        stop_slot_terminal(SLOT_ROOT / target_slot / "terminal64.exe")
+                        LOG.info("Released %s from account %s", target_slot, account_id)
+                    else:
+                        LOG.info("Account %s had no running MT5 slot to release", account_id)
+
+                    post_result(
+                        str(job.get("id") or ""),
+                        target_slot or configured_slot,
+                        True,
+                        "MT5 account disconnected. Its saved Trade Log was retained.",
+                    )
+                    continue
+
+                if action != "connect":
+                    post_result(
+                        str(job.get("id") or ""),
+                        "",
+                        False,
+                        f"Unsupported MT5 worker action: {action}",
+                    )
+                    continue
+
                 target_slot = matching_slot or free_slot
 
                 if not target_slot:

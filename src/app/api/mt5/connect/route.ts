@@ -12,6 +12,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const MAX_ACTIVE_ACCOUNTS_PER_USER = 3;
+const ACTIVE_STATUSES = ["connecting", "connected", "disconnecting"];
+
 function normalizeLogin(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -86,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     const { data: existingAccount, error: existingError } = await supabaseAdmin
       .from("mt5_accounts")
-      .select("id")
+      .select("id,status")
       .eq("user_id", user.id)
       .eq("login", login)
       .eq("server", server)
@@ -98,6 +101,25 @@ export async function POST(request: NextRequest) {
 
     let accountId = existingAccount?.id as string | undefined;
 
+    let activeQuery = supabaseAdmin
+      .from("mt5_accounts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .in("status", ACTIVE_STATUSES);
+    if (accountId) activeQuery = activeQuery.neq("id", accountId);
+    const { count: activeCount, error: activeCountError } = await activeQuery;
+    if (activeCountError) throw activeCountError;
+    if ((activeCount ?? 0) >= MAX_ACTIVE_ACCOUNTS_PER_USER) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You already have three active or connecting MT5 accounts. Disconnect one before connecting another.",
+        },
+        { status: 409 },
+      );
+    }
+
     if (accountId) {
       const { error: updateError } = await supabaseAdmin
         .from("mt5_accounts")
@@ -105,13 +127,8 @@ export async function POST(request: NextRequest) {
           encrypted_password: encryptedPassword,
           status: "connecting",
           status_message: "Waiting for the hosted MT5 worker.",
-          company: null,
-          account_name: null,
-          currency: null,
-          balance: null,
-          equity: null,
-          trade_allowed: null,
           last_error: null,
+          disconnected_at: null,
           updated_at: now,
         })
         .eq("id", accountId)

@@ -1848,6 +1848,8 @@ export default function DashboardPage() {
 
   const [selectedSection, setSelectedSection] =
     useState<DashboardSection>("overview");
+  const [selectedMt5TradeAccountId, setSelectedMt5TradeAccountId] =
+    useState("all");
   const [selectedFundamentalsTab, setSelectedFundamentalsTab] =
     useState<FundamentalsTab>("hub");
   const [selectedTechnicalsTab, setSelectedTechnicalsTab] =
@@ -2101,7 +2103,10 @@ export default function DashboardPage() {
             ) : selectedSection === "journal" ? (
               <JournalWorkspace />
             ) : selectedSection === "trade-log" ? (
-              <JournalWorkspace initialView="trade-log" />
+              <JournalWorkspace
+                initialView="trade-log"
+                initialMt5AccountId={selectedMt5TradeAccountId}
+              />
             ) : selectedSection === "performance" ? (
               <PerformanceWorkspace />
             ) : selectedSection === "fundamentals" ? (
@@ -2118,7 +2123,12 @@ export default function DashboardPage() {
             ) : selectedSection === "risk-management" ? (
               <RiskManagementWorkspaceEnhanced />
             ) : selectedSection === "connect-platform" ? (
-              <ConnectPlatformWorkspace />
+              <ConnectPlatformWorkspace
+                onOpenTradeLog={(accountId) => {
+                  setSelectedMt5TradeAccountId(accountId);
+                  setSelectedSection("trade-log");
+                }}
+              />
             ) : selectedSection === "new-entry" ? (
               <NewEntryWorkspace />
             ) : (

@@ -38,6 +38,7 @@ type Mt5Snapshot = {
 };
 
 type Mt5JobResult = {
+  action: string;
   status: string;
   result_json: Mt5Snapshot | null;
   error_message: string | null;
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
 
     const { data: latestJobData, error: latestJobError } = await supabaseAdmin
       .from("mt5_connection_jobs")
-      .select("status,result_json,error_message,created_at,updated_at")
+      .select("action,status,result_json,error_message,created_at,updated_at")
       .eq("account_id", account.id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -110,6 +111,29 @@ export async function GET(request: NextRequest) {
     const positions = Array.isArray(snapshot?.positions)
       ? snapshot.positions
       : [];
+
+    if (latestJob?.action === "disconnect") {
+      if (
+        latestJob.status === "pending" ||
+        latestJob.status === "processing"
+      ) {
+        return jsonNoStore({
+          success: true,
+          account: {
+            ...account,
+            status: "disconnecting",
+            status_message: "Releasing the hosted MT5 slot.",
+            last_error: null,
+            positions: [],
+          },
+        });
+      }
+
+      return jsonNoStore({
+        success: true,
+        account: { ...account, positions: [] },
+      });
+    }
 
     if (latestJob?.status === "completed" && snapshot) {
       return jsonNoStore({

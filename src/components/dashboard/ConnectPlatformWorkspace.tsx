@@ -265,11 +265,20 @@ function MetaTraderSelection({
   );
 }
 
-export default function ConnectPlatformWorkspace() {
+export default function ConnectPlatformWorkspace({
+  onOpenTradeLog,
+}: {
+  onOpenTradeLog?: (accountId: string) => void;
+}) {
   const [activeView, setActiveView] = useState<ConnectView>("platforms");
 
   if (activeView === "mt5") {
-    return <MT5ConnectWorkspace onBack={() => setActiveView("metatrader")} />;
+    return (
+      <MT5ConnectWorkspace
+        onBack={() => setActiveView("metatrader")}
+        onOpenTradeLog={onOpenTradeLog}
+      />
+    );
   }
 
   if (activeView === "metatrader") {

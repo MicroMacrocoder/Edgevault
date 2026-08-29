@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $AgentDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SlotRoot = "C:\EdgeVaultMT5"
-$SlotNames = @("Slot01")
+$SlotNames = 1..6 | ForEach-Object { "Slot{0:D2}" -f $_ }
 
 foreach ($SlotName in $SlotNames) {
     $SlotPath = Join-Path $SlotRoot $SlotName

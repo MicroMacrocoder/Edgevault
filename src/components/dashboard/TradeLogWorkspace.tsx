@@ -171,7 +171,11 @@ function TradeLogHub({
   );
 }
 
-export default function TradeLogWorkspace() {
+export default function TradeLogWorkspace({
+  initialAutomaticAccountId = "all",
+}: {
+  initialAutomaticAccountId?: string;
+}) {
   const [activeView, setActiveView] = useState<TradeLogView>("automatic");
   const [selectedLogId, setSelectedLogId] = useState("");
   const [builderEditLogId, setBuilderEditLogId] = useState("");
@@ -210,7 +214,9 @@ export default function TradeLogWorkspace() {
             Manual Trade Logs
           </button>
         </div>
-        <AutomaticMT5TradeLogWorkspace />
+        <AutomaticMT5TradeLogWorkspace
+          initialAccountId={initialAutomaticAccountId}
+        />
       </div>
     );
   }

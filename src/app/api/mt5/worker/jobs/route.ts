@@ -175,6 +175,19 @@ async function claimNextJob(
       continue;
     }
 
+    if (claimedJob.action === "disconnect") {
+      return jsonNoStore({
+        success: true,
+        pendingCount: pendingCount ?? 1,
+        job: {
+          id: claimedJob.id,
+          action: "disconnect",
+          accountId: account.id,
+          terminalSlot: account.terminal_slot ?? null,
+        },
+      });
+    }
+
     const broker = getMt5BrokerByServer(account.server);
     if (!broker) {
       await supabaseAdmin

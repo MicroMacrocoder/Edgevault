@@ -250,12 +250,18 @@ function CumulativeChart({
   );
 }
 
-export default function AutomaticMT5TradeLogWorkspace() {
+export default function AutomaticMT5TradeLogWorkspace({
+  initialAccountId = "all",
+}: {
+  initialAccountId?: string;
+}) {
   const { preferences, updateSection } = useDashboardPreferences();
   const timezonePreference = preferences.tradeLog;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState("all");
+  const [selectedAccountId, setSelectedAccountId] = useState(
+    initialAccountId || "all",
+  );
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");

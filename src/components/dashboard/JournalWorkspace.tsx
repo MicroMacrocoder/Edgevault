@@ -204,8 +204,10 @@ function JournalHub({
 
 export default function JournalWorkspace({
   initialView = "hub",
+  initialMt5AccountId = "all",
 }: {
   initialView?: JournalView;
+  initialMt5AccountId?: string;
 }) {
   const [activeView, setActiveView] = useState<JournalView>(initialView);
 
@@ -267,7 +269,9 @@ export default function JournalWorkspace({
           </div>
         </Panel>
 
-        <TradeLogWorkspace />
+        <TradeLogWorkspace
+          initialAutomaticAccountId={initialMt5AccountId}
+        />
       </div>
     );
   }
