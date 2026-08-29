@@ -402,7 +402,7 @@ export default function MT5ConnectWorkspace({ onBack, onOpenTradeLog }: MT5Conne
                   <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={() => onOpenTradeLog?.(account.id)} className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-xs font-bold text-cyan-200 hover:border-cyan-400">Open Trade Log</button>
-                      <button type="button" disabled={changing || account.pending_deletion === true} onClick={() => void handleRemoveAccount(account)} className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-200 hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-50">Remove Account</button>
+                      <button type="button" disabled={actionAccountId === account.id || account.pending_deletion === true} onClick={() => void handleRemoveAccount(account)} className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-200 hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-50">Remove Account</button>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-xs font-semibold text-slate-400">
