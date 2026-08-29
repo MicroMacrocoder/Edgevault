@@ -130,6 +130,7 @@ export async function POST(request: NextRequest) {
           last_error: null,
           terminal_slot: null,
           worker_id: null,
+          pending_deletion: false,
           disconnected_at: null,
           updated_at: now,
         })

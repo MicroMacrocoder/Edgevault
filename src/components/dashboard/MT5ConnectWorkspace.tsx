@@ -25,6 +25,7 @@ type Mt5Account = {
   last_error?: string | null;
   terminal_slot?: string | null;
   worker_id?: string | null;
+  pending_deletion?: boolean | null;
   last_connected_at?: string | null;
   disconnected_at?: string | null;
   created_at?: string | null;
@@ -233,6 +234,38 @@ export default function MT5ConnectWorkspace({ onBack, onOpenTradeLog }: MT5Conne
     }
   }
 
+  async function handleRemoveAccount(account: Mt5Account) {
+    const confirmed = window.confirm(
+      `Permanently remove MT5 login ${account.login}?\n\nThis deletes its imported trades, Trade Log details, notes and screenshots. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setActionAccountId(account.id);
+    setMessage("");
+    try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error("Log in to manage MT5 accounts.");
+      const response = await fetch("/api/mt5/accounts", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || "Could not remove this account.");
+      }
+      setMessage(result.message || "MT5 account removal started.");
+      await loadAccounts();
+    } catch (error: any) {
+      setMessage(error?.message || "Could not remove this account.");
+    } finally {
+      setActionAccountId("");
+    }
+  }
+
   return (
     <div className="space-y-5">
       <Panel className="relative overflow-hidden p-6">
@@ -341,7 +374,7 @@ export default function MT5ConnectWorkspace({ onBack, onOpenTradeLog }: MT5Conne
                       <p className="truncate text-lg font-black text-white">{account.account_name || account.company || account.server}</p>
                       <p className="mt-1 text-xs text-slate-500">Login {account.login} · {account.server}</p>
                     </div>
-                    <span className={`rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] ${statusTone(account.status)}`}>{statusLabel(account.status)}</span>
+                    <span className={`rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] ${statusTone(account.status)}`}>{account.pending_deletion ? "Removing" : statusLabel(account.status)}</span>
                   </div>
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -367,7 +400,10 @@ export default function MT5ConnectWorkspace({ onBack, onOpenTradeLog }: MT5Conne
                   {account.status_message || account.last_error ? <p className={`mt-2 text-xs ${account.last_error ? "text-red-300" : "text-slate-400"}`}>{account.last_error || account.status_message}</p> : null}
 
                   <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
-                    <button type="button" onClick={() => onOpenTradeLog?.(account.id)} className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-xs font-bold text-cyan-200 hover:border-cyan-400">Open Trade Log</button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button type="button" onClick={() => onOpenTradeLog?.(account.id)} className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-xs font-bold text-cyan-200 hover:border-cyan-400">Open Trade Log</button>
+                      <button type="button" disabled={changing || account.pending_deletion === true} onClick={() => void handleRemoveAccount(account)} className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-200 hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-50">Remove Account</button>
+                    </div>
                     <div className="flex items-center gap-3">
                       <span className="text-xs font-semibold text-slate-400">
                         {changing ? (account.status === "disconnecting" ? "Disconnecting..." : "Connecting...") : active ? "Connected" : "Disconnected"}

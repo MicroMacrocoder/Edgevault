@@ -7,7 +7,7 @@ export const revalidate = 0;
 const MAX_ACTIVE_ACCOUNTS_PER_USER = 3;
 const ACTIVE_STATUSES = ["connecting", "connected", "disconnecting"];
 const SAFE_ACCOUNT_FIELDS =
-  "id,login,server,company,account_name,currency,balance,equity,trade_allowed,status,status_message,last_error,terminal_slot,worker_id,last_connected_at,disconnected_at,created_at,updated_at";
+  "id,login,server,company,account_name,currency,balance,equity,trade_allowed,status,status_message,last_error,terminal_slot,worker_id,pending_deletion,last_connected_at,disconnected_at,created_at,updated_at";
 
 function jsonNoStore(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -188,6 +188,7 @@ export async function PATCH(request: NextRequest) {
           last_error: null,
           terminal_slot: null,
           worker_id: null,
+          pending_deletion: false,
           disconnected_at: null,
           updated_at: now,
         })
@@ -254,6 +255,98 @@ export async function PATCH(request: NextRequest) {
       {
         success: false,
         message: error?.message || "Could not update the MT5 connection.",
+      },
+      500,
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (!user) {
+      return jsonNoStore(
+        { success: false, message: authError || "Unauthorized." },
+        401,
+      );
+    }
+
+    const body = await request.json();
+    const accountId = String(body?.accountId || "").trim();
+    if (!accountId) {
+      return jsonNoStore(
+        { success: false, message: "accountId is required." },
+        400,
+      );
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    const { data: account, error: accountError } = await supabaseAdmin
+      .from("mt5_accounts")
+      .select("id,login,status,pending_deletion")
+      .eq("id", accountId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (accountError) throw accountError;
+    if (!account) {
+      return jsonNoStore(
+        { success: false, message: "Saved MT5 account was not found." },
+        404,
+      );
+    }
+
+    if (account.pending_deletion) {
+      return jsonNoStore({
+        success: true,
+        accountId,
+        status: "disconnecting",
+        message: "This MT5 account is already being removed.",
+      });
+    }
+
+    const now = new Date().toISOString();
+    await cancelOpenJobs(supabaseAdmin, accountId, now);
+
+    const { data: job, error: jobError } = await supabaseAdmin
+      .from("mt5_connection_jobs")
+      .insert({
+        user_id: user.id,
+        account_id: accountId,
+        action: "disconnect",
+        status: "pending",
+        created_at: now,
+        updated_at: now,
+      })
+      .select("id")
+      .single();
+    if (jobError) throw jobError;
+
+    const { error: updateError } = await supabaseAdmin
+      .from("mt5_accounts")
+      .update({
+        status: "disconnecting",
+        status_message: "Releasing its VPS slot before permanent removal.",
+        last_error: null,
+        pending_deletion: true,
+        updated_at: now,
+      })
+      .eq("id", accountId)
+      .eq("user_id", user.id);
+    if (updateError) throw updateError;
+
+    return jsonNoStore({
+      success: true,
+      accountId,
+      jobId: job.id,
+      status: "disconnecting",
+      message: `Removing MT5 login ${account.login}. Its VPS slot will be released first.`,
+    });
+  } catch (error: any) {
+    console.error("MT5 ACCOUNT REMOVE ERROR:", error);
+    return jsonNoStore(
+      {
+        success: false,
+        message: error?.message || "Could not remove the MT5 account.",
       },
       500,
     );

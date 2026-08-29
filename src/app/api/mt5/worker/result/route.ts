@@ -6,6 +6,56 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function screenshotPathsFromCustomFields(
+  customFields: unknown,
+  userId: string,
+) {
+  if (!customFields || typeof customFields !== "object" || Array.isArray(customFields)) {
+    return [] as string[];
+  }
+  return Object.values(customFields as Record<string, unknown>)
+    .map((value) =>
+      value && typeof value === "object" && !Array.isArray(value)
+        ? String((value as Record<string, unknown>).path || "").trim()
+        : "",
+    )
+    .filter((path) => path.startsWith(`${userId}/mt5-trades/`));
+}
+
+async function removeAccountScreenshots(
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
+  accountId: string,
+  userId: string,
+) {
+  const paths = new Set<string>();
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data: trades, error } = await supabaseAdmin
+      .from("mt5_trade_records")
+      .select("custom_fields")
+      .eq("account_id", accountId)
+      .range(from, from + pageSize - 1);
+    if (error) {
+      console.error("MT5 SCREENSHOT LOOKUP ERROR:", error);
+      return;
+    }
+    for (const trade of trades ?? []) {
+      for (const path of screenshotPathsFromCustomFields(trade.custom_fields, userId)) {
+        paths.add(path);
+      }
+    }
+    if ((trades ?? []).length < pageSize) break;
+  }
+
+  const allPaths = [...paths];
+  for (let index = 0; index < allPaths.length; index += 100) {
+    const { error } = await supabaseAdmin.storage
+      .from("chart-images")
+      .remove(allPaths.slice(index, index + 100));
+    if (error) console.error("MT5 SCREENSHOT REMOVE ERROR:", error);
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!isAuthorizedMt5Worker(request)) {
@@ -71,6 +121,14 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     if (job.action === "disconnect") {
+      const { data: accountState, error: accountStateError } =
+        await supabaseAdmin
+          .from("mt5_accounts")
+          .select("id,user_id,pending_deletion")
+          .eq("id", job.account_id)
+          .maybeSingle();
+      if (accountStateError) throw accountStateError;
+
       if (!success) {
         const failureMessage = message || "The MT5 account could not be disconnected.";
         await supabaseAdmin
@@ -79,6 +137,7 @@ export async function POST(request: NextRequest) {
             status: "error",
             status_message: failureMessage,
             last_error: failureMessage,
+            pending_deletion: false,
             updated_at: now,
           })
           .eq("id", job.account_id);
@@ -94,6 +153,24 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true });
       }
 
+      if (accountState?.pending_deletion) {
+        await removeAccountScreenshots(
+          supabaseAdmin,
+          job.account_id,
+          accountState.user_id,
+        );
+        const { error: deleteAccountError } = await supabaseAdmin
+          .from("mt5_accounts")
+          .delete()
+          .eq("id", job.account_id);
+        if (deleteAccountError) throw deleteAccountError;
+        return NextResponse.json({
+          success: true,
+          removed: true,
+          message: "The MT5 slot was released and the saved account was removed.",
+        });
+      }
+
       const { data: disconnectedAccount, error: disconnectAccountError } =
         await supabaseAdmin
           .from("mt5_accounts")
@@ -104,6 +181,7 @@ export async function POST(request: NextRequest) {
             last_error: null,
             terminal_slot: null,
             worker_id: null,
+            pending_deletion: false,
             disconnected_at: now,
             updated_at: now,
           })
@@ -148,6 +226,7 @@ export async function POST(request: NextRequest) {
           last_error: null,
           terminal_slot: terminalSlot,
           worker_id: workerId,
+          pending_deletion: false,
           disconnected_at: null,
           last_connected_at: now,
           updated_at: now,
@@ -195,6 +274,7 @@ export async function POST(request: NextRequest) {
           last_error: failureMessage,
           terminal_slot: null,
           worker_id: null,
+          pending_deletion: false,
           updated_at: now,
         })
         .eq("id", job.account_id)
