@@ -355,7 +355,11 @@ export default function MT5ConnectWorkspace({ onBack, onOpenTradeLog }: MT5Conne
                     </div>
                     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
                       <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">VPS Slot</p>
-                      <p className="mt-2 text-sm font-bold text-white">{account.terminal_slot || "Not assigned"}</p>
+                      <p className="mt-2 text-sm font-bold text-white">
+                        {account.status === "connecting"
+                          ? "Pending assignment"
+                          : account.terminal_slot || "Not assigned"}
+                      </p>
                     </div>
                   </div>
 

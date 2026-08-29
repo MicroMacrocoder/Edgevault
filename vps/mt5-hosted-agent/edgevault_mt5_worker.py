@@ -78,6 +78,7 @@ class ActiveSession:
     process: Any
     last_result_mtime_ns: int = 0
     connected: bool = False
+    started_at: float = 0.0
 
 
 @dataclass
@@ -546,6 +547,7 @@ def restore_running_sessions() -> dict[str, ActiveSession]:
             config_path=slot_path / "EdgeVaultRuntime" / f"connect-{job_id}.ini",
             process=RestoredTerminalProcess(terminal_process),
             connected=connected,
+            started_at=time.monotonic(),
         )
         LOG.info("Restored %s session for MT5 login %s", slot_name, expected_login)
     return sessions
@@ -576,7 +578,7 @@ def start_job(job: dict[str, Any], slot_name: str) -> ActiveSession:
     return ActiveSession(
         slot_name=slot_name, job_id=str(job["id"]), account_id=str(job["accountId"]),
         expected_login=str(job["login"]), result_path=result_path, sync_path=sync_path,
-        config_path=config_path, process=process,
+        config_path=config_path, process=process, started_at=time.monotonic(),
     )
 
 
@@ -609,6 +611,20 @@ def forward_snapshots(sessions: dict[str, ActiveSession]) -> None:
             LOG.warning("Could not read %s snapshot: %s", slot_name, error)
             continue
         if not snapshot:
+            if (
+                not session.connected
+                and session.started_at > 0
+                and time.monotonic() - session.started_at >= CONNECT_TIMEOUT_SECONDS
+            ):
+                message = (
+                    "The MT5 terminal opened, but the EdgeVault bridge did not return "
+                    f"a connection result within {CONNECT_TIMEOUT_SECONDS} seconds."
+                )
+                post_result(session.job_id, slot_name, False, message)
+                LOG.error("%s connection timed out: no bridge result file", slot_name)
+                session.config_path.unlink(missing_ok=True)
+                stop_slot_terminal(SLOT_ROOT / slot_name / "terminal64.exe")
+                del sessions[slot_name]
             continue
         success = snapshot.get("success") is True
         account_info = snapshot.get("accountInfo") or {}

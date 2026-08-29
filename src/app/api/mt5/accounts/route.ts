@@ -186,6 +186,8 @@ export async function PATCH(request: NextRequest) {
           status: "connecting",
           status_message: "Waiting for the hosted MT5 worker.",
           last_error: null,
+          terminal_slot: null,
+          worker_id: null,
           disconnected_at: null,
           updated_at: now,
         })
