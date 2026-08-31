@@ -129,7 +129,7 @@ function cotRecentDevelopmentText(
     case "stabilizing":
       return "with the latest reports becoming more stable";
     case "early_turn":
-      return "but the latest reports show an early turn against the broader five-report direction";
+      return "but the latest reports show an early turn against the broader 5-week direction";
     default:
       return "with mixed movement in the most recent reports";
   }
@@ -141,7 +141,7 @@ function buildParticipantSentence(
 ) {
   return (
     `${name} are currently ${cotCurrentPositionText(analysis.currentPosition)}, ` +
-    `while their five-report positioning transition is ${cotDirectionText(analysis.direction)} ${cotRecentDevelopmentText(analysis)}.`
+    `while their 5-week positioning transition is ${cotDirectionText(analysis.direction)} ${cotRecentDevelopmentText(analysis)}.`
   );
 }
 
@@ -218,7 +218,7 @@ function buildMarketBehaviourSentence(
   input: MarketIntelligenceNarrativeInput
 ) {
   return (
-    `${symbol}'s 15-observation Price trend is ${directionWord(input.price.direction)}, ` +
+    `${symbol}'s 15-day Price trend is ${directionWord(input.price.direction)}, ` +
     `Open Interest is ${directionWord(input.openInterest.direction)}, and Volume is ${directionWord(input.volume.direction)}. ` +
     `Price ${recentDevelopmentPhrase(input.price.recentDevelopment)}; ` +
     `Open Interest ${recentDevelopmentPhrase(input.openInterest.recentDevelopment)}; ` +
@@ -232,7 +232,7 @@ function buildCompactMarketLine(
 ) {
   return (
     `${symbol}: Price is ${directionWord(input.price.direction)}, ` +
-    `Open Interest is ${directionWord(input.openInterest.direction)}, and Volume is ${directionWord(input.volume.direction)} across the rolling 15-observation window.`
+    `Open Interest is ${directionWord(input.openInterest.direction)}, and Volume is ${directionWord(input.volume.direction)} across the 15-day overview.`
   );
 }
 
@@ -240,8 +240,8 @@ function buildCompactCOTLine(
   input: MarketIntelligenceNarrativeInput
 ) {
   return (
-    `Leveraged Funds are ${cotCurrentPositionText(input.leveragedFunds.currentPosition)} with a ${cotDirectionText(input.leveragedFunds.direction)} five-report transition; ` +
-    `Asset Managers are ${cotCurrentPositionText(input.assetManagers.currentPosition)} with a ${cotDirectionText(input.assetManagers.direction)} five-report transition.`
+    `Leveraged Funds are ${cotCurrentPositionText(input.leveragedFunds.currentPosition)} with a ${cotDirectionText(input.leveragedFunds.direction)} 5-week transition; ` +
+    `Asset Managers are ${cotCurrentPositionText(input.assetManagers.currentPosition)} with a ${cotDirectionText(input.assetManagers.direction)} 5-week transition.`
   );
 }
 
@@ -318,7 +318,7 @@ function buildDetailedAnalysis(
     input.continuity.changeSummary,
 
     "",
-    "15-OBSERVATION MARKET BEHAVIOUR",
+    "15 DAYS OVERVIEW — MARKET BEHAVIOUR",
     buildMarketBehaviourSentence(
       input.symbol,
       input
@@ -327,7 +327,7 @@ function buildDetailedAnalysis(
     `Meaning: ${input.marketCondition.meaning}`,
 
     "",
-    "5-REPORT COT POSITIONING",
+    "5 WEEKS OVERVIEW — COT POSITIONING",
     buildParticipantSentence(
       "Leveraged Funds",
       input.leveragedFunds

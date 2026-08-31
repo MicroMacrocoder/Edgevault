@@ -108,6 +108,14 @@ function formatRelationship(value: string | null | undefined) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function formatMarketIntelligenceCopy(value: string) {
+  return value
+    .replaceAll("15-observation", "15-day")
+    .replaceAll("15 observation", "15-day")
+    .replaceAll("five-report", "5-week")
+    .replaceAll("5-report", "5-week");
+}
+
 export default function MarketIntelligenceDashboardWidget({
   onOpen,
 }: MarketIntelligenceDashboardWidgetProps) {
@@ -241,7 +249,7 @@ export default function MarketIntelligenceDashboardWidget({
     () =>
       (report?.dashboard_summary ?? "")
         .split("\n")
-        .map((line) => line.trim())
+        .map((line) => formatMarketIntelligenceCopy(line.trim()))
         .filter(Boolean)
         .slice(0, 4),
     [report],
@@ -354,10 +362,10 @@ export default function MarketIntelligenceDashboardWidget({
 
           <div className="mt-2.5 grid grid-cols-4 gap-1.5 sm:gap-2">
             {[
-              ["Price", priceTrend],
-              ["OI", oiTrend],
-              ["Volume", volumeTrend],
-            ].map(([label, trend]) => {
+              ["Price", "15 Days Overview", priceTrend],
+              ["Open Interest", "15 Days Overview", oiTrend],
+              ["Volume", "15 Days Overview", volumeTrend],
+            ].map(([label, periodLabel, trend]) => {
               const trendValue =
                 trend as ReturnType<
                   typeof formatTrend
@@ -372,6 +380,10 @@ export default function MarketIntelligenceDashboardWidget({
                     {String(label)}
                   </p>
 
+                  <p className="mt-0.5 truncate font-mono text-[6px] uppercase tracking-[0.06em] text-cyan-500/70 sm:text-[7px]">
+                    {String(periodLabel)}
+                  </p>
+
                   <p
                     className={`mt-1 truncate font-mono text-[10px] font-bold sm:text-xs ${trendValue.className}`}
                   >
@@ -384,7 +396,11 @@ export default function MarketIntelligenceDashboardWidget({
 
             <div className="min-w-0 border border-gray-800 bg-[#0b0b0b] px-1.5 py-2 sm:px-2">
               <p className="truncate font-mono text-[7px] uppercase tracking-[0.08em] text-gray-600 sm:text-[8px] sm:tracking-[0.1em]">
-                Position
+                COT Position
+              </p>
+
+              <p className="mt-0.5 truncate font-mono text-[6px] uppercase tracking-[0.06em] text-cyan-500/70 sm:text-[7px]">
+                5 Weeks Overview
               </p>
 
               <p className="mt-1 truncate font-mono text-[10px] font-bold text-cyan-300 sm:text-xs">
@@ -396,8 +412,9 @@ export default function MarketIntelligenceDashboardWidget({
           </div>
 
           <p className="mt-2.5 text-xs leading-relaxed text-gray-300 sm:text-[13px]">
-            {report.technical_meaning ||
-              "The current technical meaning is unavailable."}
+            {report.technical_meaning
+              ? formatMarketIntelligenceCopy(report.technical_meaning)
+              : "The current technical meaning is unavailable."}
           </p>
 
           {summaryLines.length > 0 ? (

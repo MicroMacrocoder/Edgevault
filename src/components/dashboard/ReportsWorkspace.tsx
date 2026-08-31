@@ -243,6 +243,32 @@ function formatTextValue(
     );
 }
 
+function formatMarketIntelligenceCopy(value: string) {
+  return value
+    .replaceAll("15-observation", "15-day")
+    .replaceAll("15 observation", "15-day")
+    .replaceAll("five-report", "5-week")
+    .replaceAll("5-report", "5-week");
+}
+
+function formatAnalysisHeading(value: string) {
+  if (
+    value === "15-OBSERVATION MARKET BEHAVIOUR" ||
+    value === "15 DAYS OVERVIEW — MARKET BEHAVIOUR"
+  ) {
+    return "15 DAYS OVERVIEW — MARKET BEHAVIOUR";
+  }
+
+  if (
+    value === "5-REPORT COT POSITIONING" ||
+    value === "5 WEEKS OVERVIEW — COT POSITIONING"
+  ) {
+    return "5 WEEKS OVERVIEW — COT POSITIONING";
+  }
+
+  return value;
+}
+
 function monthKey(value: string) {
   return value.slice(0, 7);
 }
@@ -296,6 +322,8 @@ function parseAnalysisSections(
     "WHAT CHANGED",
     "15-OBSERVATION MARKET BEHAVIOUR",
     "5-REPORT COT POSITIONING",
+    "15 DAYS OVERVIEW — MARKET BEHAVIOUR",
+    "5 WEEKS OVERVIEW — COT POSITIONING",
     "POSITIONING VS MARKET",
     "WHAT TO WATCH",
   ]);
@@ -314,8 +342,8 @@ function parseAnalysisSections(
     }
 
     sections.push({
-      heading: activeHeading,
-      body: activeBody,
+      heading: formatAnalysisHeading(activeHeading),
+      body: activeBody.map(formatMarketIntelligenceCopy),
     });
 
     activeBody = [];
@@ -854,8 +882,8 @@ export default function ReportsWorkspace({
         <>
           <div className="grid gap-4 md:grid-cols-3">
             {[
-              ["Price / OI / Volume", report.price_as_of],
-              ["COT Positioning", report.cot_as_of],
+              ["Price / OI / Volume · 15 Days Overview", report.price_as_of],
+              ["COT Positioning · 5 Weeks Overview", report.cot_as_of],
               ["Report", report.analysis_date],
             ].map(([label, value]) => (
               <div
@@ -890,9 +918,9 @@ export default function ReportsWorkspace({
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               {[
-                ["Price", priceTrend],
-                ["Open Interest", oiTrend],
-                ["Volume", volumeTrend],
+                ["Price · 15 Days Overview", priceTrend],
+                ["Open Interest · 15 Days Overview", oiTrend],
+                ["Volume · 15 Days Overview", volumeTrend],
               ].map(([label, trend]) => {
                 const trendValue =
                   trend as ReturnType<
@@ -920,7 +948,7 @@ export default function ReportsWorkspace({
 
               <div className="border border-gray-800 bg-black p-3">
                 <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-gray-500">
-                  Leveraged Funds
+                  Leveraged Funds · 5 Weeks Overview
                 </p>
 
                 <p className="mt-2 font-mono text-sm font-bold text-cyan-300">
@@ -932,7 +960,7 @@ export default function ReportsWorkspace({
 
               <div className="border border-gray-800 bg-black p-3">
                 <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-gray-500">
-                  Asset Managers
+                  Asset Managers · 5 Weeks Overview
                 </p>
 
                 <p className="mt-2 font-mono text-sm font-bold text-cyan-300">
