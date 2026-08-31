@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import {
   supabase,
   getUserJournalEntries,
-  getUserTradeLogTemplates,
 } from "@/lib/supabase";
 import {
   getCombinedPerformanceTradeLogs,
@@ -633,14 +632,6 @@ type DashboardJournalPreview = {
   analysisBlocks: DashboardJournalBlockPreview[];
 };
 
-type DashboardTradeLogPreview = {
-  id: string;
-  logName: string;
-  initialBalance: number;
-  accountCurrency: string;
-  createdAt: string;
-};
-
 type DashboardRecentMt5Trade = {
   id: string;
   accountId: string;
@@ -706,97 +697,47 @@ function formatDashboardTradeDate(dateValue?: string | null) {
 }
 
 function normalizeDashboardCustomChecklistItems(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
+  if (!Array.isArray(value)) return [];
   const hasCategoryShape = value.some(
-    (item) =>
-      item &&
-      typeof item === "object" &&
-      Object.prototype.hasOwnProperty.call(item, "category"),
+    (item) => item && typeof item === "object" && Object.prototype.hasOwnProperty.call(item, "category"),
   );
-
   return hasCategoryShape
     ? value
-    : [
-        {
-          id: "legacy-custom-checklist",
-          category: "Custom Checklist",
-          items: value,
-        },
-      ];
+    : [{ id: "legacy-custom-checklist", category: "Custom Checklist", items: value }];
 }
 
-function getDashboardCheckedChecklistItems(
-  block: any,
-): DashboardJournalChecklistItem[] {
+function getDashboardCheckedChecklistItems(block: any): DashboardJournalChecklistItem[] {
   const builtInItems = Array.isArray(block?.checklistItems)
     ? block.checklistItems
         .map((item: any, index: number) => {
-          if (typeof item === "string") {
-            return {
-              id: `built-in-${index}-${item}`,
-              label: item,
-            };
-          }
-
-          if (item?.checked === false) {
-            return null;
-          }
-
+          if (typeof item === "string") return { id: `built-in-${index}-${item}`, label: item };
+          if (item?.checked === false) return null;
           const label = String(item?.label || item?.name || "").trim();
-
-          return label
-            ? {
-                id: String(item?.id || `built-in-${index}-${label}`),
-                label,
-              }
-            : null;
+          return label ? { id: String(item?.id || `built-in-${index}-${label}`), label } : null;
         })
         .filter(Boolean)
     : [];
-
-  const customItems = normalizeDashboardCustomChecklistItems(
-    block?.customChecklistItems,
-  ).flatMap((category: any, categoryIndex: number) =>
-    Array.isArray(category?.items)
-      ? category.items
-          .filter((item: any) => item?.checked)
-          .map((item: any, itemIndex: number) => ({
-            id: String(
-              item?.id ||
-                `custom-${categoryIndex}-${itemIndex}-${item?.label || "item"}`,
-            ),
-            label: String(item?.label || "Checklist item"),
-          }))
-      : [],
+  const customItems = normalizeDashboardCustomChecklistItems(block?.customChecklistItems).flatMap(
+    (category: any, categoryIndex: number) =>
+      Array.isArray(category?.items)
+        ? category.items
+            .filter((item: any) => item?.checked)
+            .map((item: any, itemIndex: number) => ({
+              id: String(item?.id || `custom-${categoryIndex}-${itemIndex}-${item?.label || "item"}`),
+              label: String(item?.label || "Checklist item"),
+            }))
+        : [],
   );
-
-  return [
-    ...(builtInItems as DashboardJournalChecklistItem[]),
-    ...customItems,
-  ];
+  return [...(builtInItems as DashboardJournalChecklistItem[]), ...customItems];
 }
 
-function buildDashboardJournalPreview(
-  entries: any[],
-): DashboardJournalPreview | null {
+function buildDashboardJournalPreview(entries: any[]): DashboardJournalPreview | null {
   const latestEntry = [...(entries || [])].sort((a, b) => {
-    const bDate = new Date(
-      b?.createdAt || b?.entryDate || 0,
-    ).getTime();
-    const aDate = new Date(
-      a?.createdAt || a?.entryDate || 0,
-    ).getTime();
-
+    const bDate = new Date(b?.createdAt || b?.entryDate || 0).getTime();
+    const aDate = new Date(a?.createdAt || a?.entryDate || 0).getTime();
     return bDate - aDate;
   })[0];
-
-  if (!latestEntry) {
-    return null;
-  }
-
+  if (!latestEntry) return null;
   return {
     id: String(latestEntry.id),
     title: latestEntry.entryTitle || "Untitled Analysis",
@@ -806,9 +747,7 @@ function buildDashboardJournalPreview(
     analysisBlocks: Array.isArray(latestEntry.analysisBlocks)
       ? latestEntry.analysisBlocks.map((block: any, index: number) => ({
           id: String(block?.id || `journal-block-${index}`),
-          title:
-            String(block?.sectionName || "").trim() ||
-            `Analysis Block ${index + 1}`,
+          title: String(block?.sectionName || "").trim() || `Analysis Block ${index + 1}`,
           timeFrame: String(block?.timeFrame || "").trim(),
           chartImage: String(block?.chartImage || "").trim(),
           checkedItems: getDashboardCheckedChecklistItems(block),
@@ -864,11 +803,6 @@ const dashboardWidgetOptions: {
     description: "Current DXY and major USD-pair prices.",
   },
   {
-    id: "saved-trade-logs",
-    label: "Saved Trade Logs",
-    description: "Recent trade-log templates.",
-  },
-  {
     id: "journal-library",
     label: "Journal Entries",
     description: "Recent analysis and journal entries.",
@@ -919,8 +853,6 @@ function OverviewSection({
 
   const [journalPreview, setJournalPreview] =
     useState<DashboardJournalPreview | null>(null);
-  const [tradeLogPreview, setTradeLogPreview] =
-    useState<DashboardTradeLogPreview[]>([]);
 
   const [draftVisibleWidgets, setDraftVisibleWidgets] =
     useState<DashboardWidgetVisibility>({
@@ -1015,20 +947,8 @@ function OverviewSection({
 
       if (user) {
         const { entries } = await getUserJournalEntries(user.id);
-        const { templates } = await getUserTradeLogTemplates(user.id);
-
         setJournalPreview(
           buildDashboardJournalPreview(entries || []),
-        );
-
-        setTradeLogPreview(
-          (templates || []).slice(0, 3).map((template: any) => ({
-            id: String(template.id),
-            logName: template.logName || "Untitled Trade Log",
-            initialBalance: Number(template.initialBalance || 0),
-            accountCurrency: template.accountCurrency || "USD",
-            createdAt: template.createdAt || "",
-          })),
         );
 
         return;
@@ -1037,27 +957,12 @@ function OverviewSection({
       const guestEntries = JSON.parse(
         localStorage.getItem("journalEntries") || "[]",
       );
-      const guestLogs = JSON.parse(
-        localStorage.getItem("guestTradeLogs") || "[]",
-      );
-
       setJournalPreview(
         buildDashboardJournalPreview(guestEntries || []),
-      );
-
-      setTradeLogPreview(
-        (guestLogs || []).slice(0, 3).map((log: any) => ({
-          id: String(log.id),
-          logName: log.logName || "Untitled Trade Log",
-          initialBalance: Number(log.initialBalance || 0),
-          accountCurrency: log.accountCurrency || "USD",
-          createdAt: log.createdAt || "",
-        })),
       );
     } catch (error) {
       console.log("LOAD DASHBOARD JOURNAL WIDGETS ERROR:", error);
       setJournalPreview(null);
-      setTradeLogPreview([]);
     }
   }
 
@@ -1217,7 +1122,6 @@ function OverviewSection({
       "economic-calendar": true,
       "market-snapshot": true,
       "market-intelligence": true,
-      "saved-trade-logs": true,
       "journal-library": true,
     });
   }
@@ -1705,168 +1609,86 @@ function OverviewSection({
         </div>
       ) : null}
 
-      {visibleWidgets["saved-trade-logs"] ||
-      visibleWidgets["journal-library"] ? (
-        <div
-          className={
-            visibleWidgets["saved-trade-logs"] &&
-            visibleWidgets["journal-library"]
-              ? "grid items-start gap-4 lg:grid-cols-2"
-              : "grid items-start gap-4"
-          }
-        >
-          {visibleWidgets["saved-trade-logs"] ? (
-            <DashboardCard className="p-5">
-              <DashboardWidgetHeader
-                label="Trade Log"
-                title="Saved Trade Logs"
-                onOpen={() => onSelectSection("journal")}
-              />
+      {visibleWidgets["journal-library"] ? (
+        <DashboardCard className="p-5">
+          <DashboardWidgetHeader
+            label="Journal"
+            title="Most Recent Journal Entry"
+            onOpen={() => onSelectSection("journal")}
+          />
 
-              <div className="space-y-3">
-                {tradeLogPreview.length === 0 ? (
-                  <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
-                    No saved trade logs yet.
-                  </div>
-                ) : (
-                  tradeLogPreview.slice(0, 4).map((log) => (
-                    <button
-                      key={log.id}
-                      type="button"
-                      onClick={() => onSelectSection("journal")}
-                      className="w-full border border-gray-800 bg-black p-3 text-left transition hover:border-yellow-400"
-                    >
-                      <p className="truncate font-mono text-sm font-bold text-white">
-                        {log.logName}
-                      </p>
-                      <p className="mt-1 text-xs text-gray-500">
-                        Initial: {formatMoney(log.initialBalance, log.accountCurrency)}
-                      </p>
-                    </button>
-                  ))
-                )}
+          <div>
+            {!journalPreview ? (
+              <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
+                No saved analysis yet.
               </div>
-            </DashboardCard>
-          ) : null}
+            ) : (
+              <div className="border border-gray-800 bg-black p-4">
+                <button type="button" onClick={() => onSelectSection("journal")} className="w-full text-left">
+                  <p className="font-mono text-base font-black text-white transition hover:text-yellow-400">
+                    {journalPreview.title}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {journalPreview.instrument} •{" "}
+                    {formatDashboardDate(journalPreview.entryDate || journalPreview.createdAt)}
+                  </p>
+                </button>
 
-          {visibleWidgets["journal-library"] ? (
-            <DashboardCard className="p-5">
-              <DashboardWidgetHeader
-                label="Journal"
-                title="Most Recent Journal Entry"
-                onOpen={() => onSelectSection("journal")}
-              />
-
-              <div>
-                {!journalPreview ? (
-                  <div className="border border-gray-800 bg-black p-5 text-sm text-gray-500">
-                    No saved analysis yet.
+                {journalPreview.analysisBlocks.length === 0 ? (
+                  <div className="mt-4 border border-dashed border-gray-800 bg-[#0b0b0b] px-4 py-6 text-center text-xs text-gray-600">
+                    This entry has no saved analysis blocks yet.
                   </div>
                 ) : (
-                  <div className="border border-gray-800 bg-black p-4">
-                    <button
-                      type="button"
-                      onClick={() => onSelectSection("journal")}
-                      className="w-full text-left"
-                    >
-                      <p className="font-mono text-base font-black text-white transition hover:text-yellow-400">
-                        {journalPreview.title}
-                      </p>
-                      <p className="mt-1 text-xs text-gray-500">
-                        {journalPreview.instrument} •{" "}
-                        {formatDashboardDate(
-                          journalPreview.entryDate ||
-                            journalPreview.createdAt,
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {journalPreview.analysisBlocks.slice(0, 4).map((block) => (
+                      <button
+                        key={block.id}
+                        type="button"
+                        onClick={() => onSelectSection("journal")}
+                        className="overflow-hidden border border-gray-800 bg-[#0b0b0b] text-left transition hover:border-cyan-400/60"
+                      >
+                        {block.chartImage ? (
+                          <div className="aspect-[16/9] overflow-hidden border-b border-gray-800 bg-black">
+                            <img src={block.chartImage} alt={block.title} className="h-full w-full object-cover transition duration-300 hover:scale-[1.02]" />
+                          </div>
+                        ) : (
+                          <div className="flex aspect-[16/9] items-center justify-center border-b border-dashed border-gray-800 bg-black px-3 text-center font-mono text-[9px] uppercase tracking-[0.12em] text-gray-700">
+                            No chart image
+                          </div>
                         )}
-                      </p>
-                    </button>
-
-                    {journalPreview.analysisBlocks.length === 0 ? (
-                      <div className="mt-4 border border-dashed border-gray-800 bg-[#0b0b0b] px-4 py-6 text-center text-xs text-gray-600">
-                        This entry has no saved analysis blocks yet.
-                      </div>
-                    ) : (
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        {journalPreview.analysisBlocks
-                          .slice(0, 4)
-                          .map((block) => (
-                            <button
-                              key={block.id}
-                              type="button"
-                              onClick={() => onSelectSection("journal")}
-                              className="overflow-hidden border border-gray-800 bg-[#0b0b0b] text-left transition hover:border-cyan-400/60"
-                            >
-                              {block.chartImage ? (
-                                <div className="aspect-[16/9] overflow-hidden border-b border-gray-800 bg-black">
-                                  <img
-                                    src={block.chartImage}
-                                    alt={block.title}
-                                    className="h-full w-full object-cover transition duration-300 hover:scale-[1.02]"
-                                  />
-                                </div>
-                              ) : (
-                                <div className="flex aspect-[16/9] items-center justify-center border-b border-dashed border-gray-800 bg-black px-3 text-center font-mono text-[9px] uppercase tracking-[0.12em] text-gray-700">
-                                  No chart image
-                                </div>
-                              )}
-
-                              <div className="p-3">
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="line-clamp-2 font-mono text-xs font-bold text-white">
-                                    {block.title}
-                                  </p>
-                                  {block.timeFrame ? (
-                                    <span className="shrink-0 border border-gray-800 px-1.5 py-0.5 font-mono text-[8px] font-bold text-cyan-300">
-                                      {block.timeFrame}
-                                    </span>
-                                  ) : null}
-                                </div>
-
-                                {block.checkedItems.length === 0 ? (
-                                  <p className="mt-2 text-[10px] text-gray-600">
-                                    No checklist items selected
-                                  </p>
-                                ) : (
-                                  <div className="mt-2 space-y-1">
-                                    {block.checkedItems
-                                      .slice(0, 3)
-                                      .map((item) => (
-                                        <p
-                                          key={item.id}
-                                          className="truncate text-[10px] text-gray-400"
-                                          title={item.label}
-                                        >
-                                          <span className="mr-1 text-emerald-400">
-                                            ✓
-                                          </span>
-                                          {item.label}
-                                        </p>
-                                      ))}
-
-                                    {block.checkedItems.length > 3 ? (
-                                      <p className="font-mono text-[9px] text-cyan-400">
-                                        +{block.checkedItems.length - 3} more
-                                      </p>
-                                    ) : null}
-                                  </div>
-                                )}
-                              </div>
-                            </button>
-                          ))}
-                      </div>
-                    )}
-
-                    {journalPreview.analysisBlocks.length > 4 ? (
-                      <p className="mt-3 text-right font-mono text-[9px] text-gray-600">
-                        +{journalPreview.analysisBlocks.length - 4} more analysis blocks
-                      </p>
-                    ) : null}
+                        <div className="p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="line-clamp-2 font-mono text-xs font-bold text-white">{block.title}</p>
+                            {block.timeFrame ? (
+                              <span className="shrink-0 border border-gray-800 px-1.5 py-0.5 font-mono text-[8px] font-bold text-cyan-300">{block.timeFrame}</span>
+                            ) : null}
+                          </div>
+                          {block.checkedItems.length === 0 ? (
+                            <p className="mt-2 text-[10px] text-gray-600">No checklist items selected</p>
+                          ) : (
+                            <div className="mt-2 space-y-1">
+                              {block.checkedItems.slice(0, 3).map((item) => (
+                                <p key={item.id} className="truncate text-[10px] text-gray-400" title={item.label}>
+                                  <span className="mr-1 text-emerald-400">✓</span>{item.label}
+                                </p>
+                              ))}
+                              {block.checkedItems.length > 3 ? (
+                                <p className="font-mono text-[9px] text-cyan-400">+{block.checkedItems.length - 3} more</p>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 )}
+                {journalPreview.analysisBlocks.length > 4 ? (
+                  <p className="mt-3 text-right font-mono text-[9px] text-gray-600">+{journalPreview.analysisBlocks.length - 4} more analysis blocks</p>
+                ) : null}
               </div>
-            </DashboardCard>
-          ) : null}
-        </div>
+            )}
+          </div>
+        </DashboardCard>
       ) : null}
 
       {visibleWidgetCount === 0 ? (

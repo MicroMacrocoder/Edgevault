@@ -20,7 +20,6 @@ export type DashboardWidgetId =
   | "recent-mt5-trades"
   | "economic-calendar"
   | "journal-library"
-  | "saved-trade-logs"
   | "market-snapshot"
   | "market-intelligence";
 
@@ -97,7 +96,6 @@ export const defaultDashboardPreferences: DashboardPreferences = {
     "economic-calendar": true,
     "market-snapshot": true,
     "market-intelligence": true,
-    "saved-trade-logs": true,
     "journal-library": true,
   },
   overview: {
