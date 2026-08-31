@@ -64,6 +64,7 @@ CONNECT_TIMEOUT_SECONDS = max(30, int(os.getenv("CONNECT_TIMEOUT_SECONDS", "150"
 DISCOVERY_TIMEOUT_SECONDS = max(30, int(os.getenv("DISCOVERY_TIMEOUT_SECONDS", "120")))
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 CACHE_DIR = AGENT_DIR / "server-cache"
+CANONICAL_BRIDGE_SOURCE = AGENT_DIR / "EdgeVaultBridge.mq5"
 
 
 @dataclass
@@ -458,6 +459,78 @@ def write_preset(slot_path: Path, job: dict[str, Any]) -> None:
     )
 
 
+def read_metaeditor_log(path: Path) -> str:
+    raw = path.read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in raw[:200]:
+        return raw.decode("utf-16", errors="replace")
+    return raw.decode("utf-8-sig", errors="replace")
+
+
+def compile_slot_bridge(slot_path: Path) -> None:
+    metaeditor_path = slot_path / "metaeditor64.exe"
+    target_source = slot_path / "MQL5" / "Experts" / "EdgeVaultBridge.mq5"
+    target_expert = target_source.with_suffix(".ex5")
+    compile_log = AGENT_DIR / f"compile-{slot_path.name}-worker.log"
+
+    if not CANONICAL_BRIDGE_SOURCE.exists():
+        raise RuntimeError(
+            f"Missing canonical bridge source: {CANONICAL_BRIDGE_SOURCE}"
+        )
+    if not metaeditor_path.exists():
+        raise RuntimeError(f"Missing MetaEditor compiler: {metaeditor_path}")
+
+    target_source.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(CANONICAL_BRIDGE_SOURCE, target_source)
+    os.utime(target_source, None)
+    compile_log.unlink(missing_ok=True)
+    compile_started_at = time.time()
+
+    try:
+        completed = subprocess.run(
+            [
+                str(metaeditor_path),
+                f"/compile:{target_source}",
+                f"/log:{compile_log}",
+                "/portable",
+            ],
+            cwd=str(slot_path),
+            timeout=120,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            f"MetaEditor timed out while compiling the {slot_path.name} bridge."
+        ) from error
+
+    log_text = read_metaeditor_log(compile_log) if compile_log.exists() else ""
+    normalized_log = log_text.casefold()
+    expert_is_fresh = (
+        target_expert.exists()
+        and target_expert.stat().st_mtime >= compile_started_at - 2
+    )
+    compiler_confirmed_clean = "0 errors" in normalized_log
+    compile_succeeded = compiler_confirmed_clean or (
+        completed.returncode == 0 and expert_is_fresh
+    )
+    if not compile_succeeded:
+        useful_lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+        details = " | ".join(useful_lines[-8:]) or (
+            f"MetaEditor exit code {completed.returncode}; "
+            f"compiled bridge present={target_expert.exists()}; fresh={expert_is_fresh}."
+        )
+        raise RuntimeError(
+            f"The {slot_path.name} EdgeVault bridge did not compile cleanly: {details}"
+        )
+
+    if log_text:
+        LOG.info("Compiled and verified %s EdgeVault bridge with 0 errors", slot_path.name)
+    else:
+        LOG.info(
+            "Compiled and verified fresh %s EdgeVault bridge (MetaEditor exit code 0)",
+            slot_path.name,
+        )
+
+
 def write_terminal_config(slot_path: Path, job: dict[str, Any]) -> Path:
     runtime_dir = slot_path / "EdgeVaultRuntime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -556,15 +629,13 @@ def restore_running_sessions() -> dict[str, ActiveSession]:
 def start_job(job: dict[str, Any], slot_name: str) -> ActiveSession:
     slot_path = SLOT_ROOT / slot_name
     terminal_path = slot_path / "terminal64.exe"
-    expert_path = slot_path / "MQL5" / "Experts" / "EdgeVaultBridge.ex5"
     result_path = slot_path / "MQL5" / "Files" / "edgevault_bridge_result.json"
     sync_path = slot_path / "MQL5" / "Files" / "edgevault_mt5_sync.json"
     if not terminal_path.exists():
         raise RuntimeError(f"Missing terminal: {terminal_path}")
-    if not expert_path.exists():
-        raise RuntimeError(f"Missing compiled terminal bridge: {expert_path}")
     stop_slot_terminal(terminal_path)
     provision_server_database(slot_path, str(job["broker"]), str(job["server"]))
+    compile_slot_bridge(slot_path)
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.unlink(missing_ok=True)
     sync_path.unlink(missing_ok=True)

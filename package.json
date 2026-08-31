@@ -12,15 +12,11 @@
     "@microsoft/signalr": "^10.0.0",
     "@supabase/supabase-js": "^2.43.1",
     "adm-zip": "^0.5.17",
-    "clsx": "2.1.1",
-    "framer-motion": "11.1.7",
     "lucide-react": "0.378.0",
     "next": "14.2.3",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "recharts": "^3.8.1",
-    "tailwind-merge": "2.3.0",
-    "yahoo-finance2": "^3.14.1"
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
