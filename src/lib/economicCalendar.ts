@@ -11,11 +11,28 @@ type BlsSeriesMapping = {
   category: string;
 };
 
-const BLS_REPORT_MAPPINGS: Array<{
+type BlsReportMapping = {
+  reportKey: string;
+  scheduleUrl: string;
   matches: (summary: string) => boolean;
   series: BlsSeriesMapping[];
-}> = [
+};
+
+type BlsReferencePeriod = {
+  eventTime: string;
+  referencePeriod: string;
+};
+
+const BLS_REQUEST_HEADERS = {
+  Accept: "text/calendar, text/html, text/plain;q=0.9, */*;q=0.1",
+  "User-Agent":
+    "EdgeVault-Economic-Calendar/1.0 (+https://edgevault-six.vercel.app)",
+};
+
+const BLS_REPORT_MAPPINGS: BlsReportMapping[] = [
   {
+    reportKey: "employment-situation",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/empsit.htm",
     matches: (summary) => summary.includes("employment situation"),
     series: [
       {
@@ -46,6 +63,8 @@ const BLS_REPORT_MAPPINGS: Array<{
     ],
   },
   {
+    reportKey: "consumer-price-index",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/cpi.htm",
     matches: (summary) => summary.includes("consumer price index"),
     series: [
       { seriesKey: "us-cpi-mom", title: "CPI MoM", category: "Inflation" },
@@ -63,6 +82,8 @@ const BLS_REPORT_MAPPINGS: Array<{
     ],
   },
   {
+    reportKey: "producer-price-index",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/ppi.htm",
     matches: (summary) => summary.includes("producer price index"),
     series: [
       {
@@ -83,6 +104,8 @@ const BLS_REPORT_MAPPINGS: Array<{
     ],
   },
   {
+    reportKey: "job-openings-and-labor-turnover",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/jolts.htm",
     matches: (summary) =>
       summary.includes("job openings and labor turnover") ||
       summary.includes("jolts"),
@@ -95,6 +118,8 @@ const BLS_REPORT_MAPPINGS: Array<{
     ],
   },
   {
+    reportKey: "employment-cost-index",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/eci.htm",
     matches: (summary) => summary.includes("employment cost index"),
     series: [
       {
@@ -105,6 +130,8 @@ const BLS_REPORT_MAPPINGS: Array<{
     ],
   },
   {
+    reportKey: "productivity-and-costs",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/prod2.htm",
     matches: (summary) =>
       summary.includes("productivity and costs") ||
       summary.includes("productivity and cost"),
@@ -294,15 +321,111 @@ function extractReferencePeriod(summary: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
-function findBlsMappings(summary: string): BlsSeriesMapping[] {
+function findBlsReport(summary: string): BlsReportMapping | null {
   const normalized = summary.toLowerCase();
-  return (
-    BLS_REPORT_MAPPINGS.find((mapping) => mapping.matches(normalized))?.series ||
-    []
+  return BLS_REPORT_MAPPINGS.find((mapping) => mapping.matches(normalized)) || null;
+}
+
+function decodeHtmlText(value: string): string {
+  return value
+    .replace(/<br\s*\/?\s*>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&ndash;|&#8211;/gi, "–")
+    .replace(/&mdash;|&#8212;/gi, "—")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const MONTH_NUMBERS: Record<string, number> = {
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12,
+};
+
+function parseBlsReleaseDateTime(dateText: string, timeText: string): Date | null {
+  const dateMatch = dateText.match(/^([A-Za-z]+)\.?\s+(\d{1,2}),\s+(\d{4})$/);
+  const timeMatch = timeText.match(/^(\d{1,2}):(\d{2})\s*([AP])\.?M\.?$/i);
+  if (!dateMatch || !timeMatch) return null;
+
+  const month = MONTH_NUMBERS[dateMatch[1].toLowerCase()];
+  if (!month) return null;
+
+  let hour = Number(timeMatch[1]);
+  if (hour === 12) hour = 0;
+  if (timeMatch[3].toUpperCase() === "P") hour += 12;
+
+  return zonedDateTimeToUtc(
+    {
+      year: Number(dateMatch[3]),
+      month,
+      day: Number(dateMatch[2]),
+      hour,
+      minute: Number(timeMatch[2]),
+      second: 0,
+    },
+    "America/New_York"
   );
 }
 
-export function parseBlsCalendarIcs(icsText: string): EconomicSourceEvent[] {
+export function parseBlsReferencePeriodsHtml(
+  html: string
+): BlsReferencePeriod[] {
+  const periods: BlsReferencePeriod[] = [];
+  const rowPattern = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+
+  for (const rowMatch of html.matchAll(rowPattern)) {
+    const cells = Array.from(
+      rowMatch[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi),
+      (cellMatch) => decodeHtmlText(cellMatch[1])
+    );
+    if (cells.length < 3) continue;
+
+    const referencePeriod = cells[0];
+    const releaseDate = parseBlsReleaseDateTime(cells[1], cells[2]);
+    if (!referencePeriod || !releaseDate) continue;
+
+    periods.push({
+      eventTime: releaseDate.toISOString(),
+      referencePeriod,
+    });
+  }
+
+  return periods;
+}
+
+function referencePeriodLookupKey(reportKey: string, eventTime: string): string {
+  return `${reportKey}:${eventTime}`;
+}
+
+export function parseBlsCalendarIcs(
+  icsText: string,
+  referencePeriods: ReadonlyMap<string, string> = new Map()
+): EconomicSourceEvent[] {
   const sourceEvents: EconomicSourceEvent[] = [];
 
   for (const event of parseIcsEvents(icsText)) {
@@ -314,15 +437,20 @@ export function parseBlsCalendarIcs(icsText: string): EconomicSourceEvent[] {
 
     if (!uid || !summary || !startsAt) continue;
 
-    const mappings = findBlsMappings(summary);
-    if (mappings.length === 0) continue;
+    const report = findBlsReport(summary);
+    if (!report) continue;
 
     const sourceUrl = event.URL || BLS_CALENDAR_ICS_URL;
     const sourcePublishedAt = event.DTSTAMP
       ? parseIcsDateTime(event.DTSTAMP, event.DTSTAMP_TZID)?.toISOString() || null
       : null;
 
-    for (const mapping of mappings) {
+    const enrichedReferencePeriod =
+      referencePeriods.get(
+        referencePeriodLookupKey(report.reportKey, startsAt.toISOString())
+      ) || extractReferencePeriod(summary);
+
+    for (const mapping of report.series) {
       sourceEvents.push({
         externalId: `bls:${uid}:${mapping.seriesKey}`,
         seriesKey: mapping.seriesKey,
@@ -332,7 +460,7 @@ export function parseBlsCalendarIcs(icsText: string): EconomicSourceEvent[] {
         eventTime: startsAt.toISOString(),
         eventKind: "data",
         category: mapping.category,
-        referencePeriod: extractReferencePeriod(summary),
+        referencePeriod: enrichedReferencePeriod,
         sourceAgency: "U.S. Bureau of Labor Statistics",
         sourceUrl,
         sourceEventId: `${uid}:${mapping.seriesKey}`,
@@ -344,6 +472,8 @@ export function parseBlsCalendarIcs(icsText: string): EconomicSourceEvent[] {
           calendar_location: event.LOCATION || null,
           calendar_dtstart: event.DTSTART,
           calendar_timezone: event.DTSTART_TZID || "America/New_York",
+          calendar_report_key: report.reportKey,
+          reference_period_schedule_url: report.scheduleUrl,
         },
       });
     }
@@ -353,23 +483,43 @@ export function parseBlsCalendarIcs(icsText: string): EconomicSourceEvent[] {
 }
 
 export async function fetchBlsCalendarEvents(): Promise<EconomicSourceEvent[]> {
-  const response = await fetch(BLS_CALENDAR_ICS_URL, {
-    cache: "no-store",
-    headers: {
-      Accept: "text/calendar, text/plain;q=0.9, */*;q=0.1",
-      "User-Agent":
-        "EdgeVault-Economic-Calendar/1.0 (+https://edgevault-six.vercel.app)",
-    },
-  });
+  const [calendarResponse, ...scheduleResults] = await Promise.all([
+    fetch(BLS_CALENDAR_ICS_URL, {
+      cache: "no-store",
+      headers: BLS_REQUEST_HEADERS,
+    }),
+    ...BLS_REPORT_MAPPINGS.map(async (report) => {
+      const response = await fetch(report.scheduleUrl, {
+        cache: "no-store",
+        headers: BLS_REQUEST_HEADERS,
+      });
+      if (!response.ok) return null;
+      return {
+        report,
+        html: await response.text(),
+      };
+    }),
+  ]);
 
-  if (!response.ok) {
+  if (!calendarResponse.ok) {
     throw new Error(
-      `BLS calendar request failed with HTTP ${response.status}.`
+      `BLS calendar request failed with HTTP ${calendarResponse.status}.`
     );
   }
 
-  const icsText = await response.text();
-  const events = parseBlsCalendarIcs(icsText);
+  const referencePeriods = new Map<string, string>();
+  for (const result of scheduleResults) {
+    if (!result) continue;
+    for (const period of parseBlsReferencePeriodsHtml(result.html)) {
+      referencePeriods.set(
+        referencePeriodLookupKey(result.report.reportKey, period.eventTime),
+        period.referencePeriod
+      );
+    }
+  }
+
+  const icsText = await calendarResponse.text();
+  const events = parseBlsCalendarIcs(icsText, referencePeriods);
 
   if (events.length === 0) {
     throw new Error("The BLS calendar returned no supported USD events.");
