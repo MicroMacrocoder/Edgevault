@@ -210,6 +210,13 @@ export default function MT5ConnectWorkspace({ onBack, onOpenTradeLog }: MT5Conne
       return;
     }
 
+    if (!shouldConnect) {
+      const confirmed = window.confirm(
+        `Disconnect MT5 login ${account.login}?\n\nIts VPS slot will be released, but its saved account and complete Trade Log will remain available.`,
+      );
+      if (!confirmed) return;
+    }
+
     setActionAccountId(account.id);
     setMessage("");
     try {
@@ -221,7 +228,11 @@ export default function MT5ConnectWorkspace({ onBack, onOpenTradeLog }: MT5Conne
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ accountId: account.id, connected: shouldConnect }),
+        body: JSON.stringify({
+          accountId: account.id,
+          connected: shouldConnect,
+          confirmation: shouldConnect ? undefined : "disconnect-account",
+        }),
       });
       const result = await response.json();
       if (!response.ok || !result?.success) throw new Error(result?.message || "Could not update this account.");

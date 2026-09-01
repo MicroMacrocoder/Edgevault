@@ -75,9 +75,88 @@ async function claimNextJob(
     throw recoverError;
   }
 
-  const normalizedActiveAccountIds = Array.from(
-    new Set(activeAccountIds.map((value) => String(value).trim()).filter(Boolean)),
+  const activeAccountIdSet = new Set(
+    activeAccountIds.map((value) => String(value).trim()).filter(Boolean),
   );
+
+  const staleDisconnectCutoff = new Date(
+    Date.now() - 10 * 60 * 1000,
+  ).toISOString();
+  const { data: expiredDisconnectJobs, error: expireDisconnectError } =
+    await supabaseAdmin
+      .from("mt5_connection_jobs")
+      .update({
+        status: "cancelled",
+        error_message:
+          "The disconnect request expired before a worker could process it.",
+        completed_at: now,
+        updated_at: now,
+      })
+      .eq("action", "disconnect")
+      .eq("status", "pending")
+      .lt("created_at", staleDisconnectCutoff)
+      .select("account_id");
+
+  if (expireDisconnectError) {
+    throw expireDisconnectError;
+  }
+
+  const expiredAccountIds = Array.from(
+    new Set(
+      (expiredDisconnectJobs || [])
+        .map((job: any) => String(job.account_id || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const expiredRunningAccountIds = expiredAccountIds.filter((accountId) =>
+    activeAccountIdSet.has(accountId),
+  );
+  const expiredInactiveAccountIds = expiredAccountIds.filter(
+    (accountId) => !activeAccountIdSet.has(accountId),
+  );
+
+  if (expiredRunningAccountIds.length > 0) {
+    const { error: restoreAccountError } = await supabaseAdmin
+      .from("mt5_accounts")
+      .update({
+        status: "connected",
+        status_message:
+          "A stale disconnect request was cancelled; the MT5 session remains active.",
+        last_error: null,
+        pending_deletion: false,
+        updated_at: now,
+      })
+      .in("id", expiredRunningAccountIds)
+      .eq("status", "disconnecting");
+
+    if (restoreAccountError) {
+      throw restoreAccountError;
+    }
+  }
+
+  if (expiredInactiveAccountIds.length > 0) {
+    const { error: markInactiveError } = await supabaseAdmin
+      .from("mt5_accounts")
+      .update({
+        status: "error",
+        status_message:
+          "A stale disconnect request was cancelled, but no active MT5 session was found.",
+        last_error: "Reconnect this saved account to resume synchronization.",
+        pending_deletion: false,
+        terminal_slot: null,
+        worker_id: null,
+        updated_at: now,
+      })
+      .in("id", expiredInactiveAccountIds)
+      .eq("status", "disconnecting");
+
+    if (markInactiveError) {
+      throw markInactiveError;
+    }
+  }
+
+  const normalizedActiveAccountIds = Array.from(activeAccountIdSet);
 
   if (!hasFreeSlot && normalizedActiveAccountIds.length === 0) {
     return jsonNoStore({ success: true, job: null, pendingCount: 0 });

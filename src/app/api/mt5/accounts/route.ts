@@ -104,10 +104,26 @@ export async function PATCH(request: NextRequest) {
 
     const body = await request.json();
     const accountId = String(body?.accountId || "").trim();
+    if (typeof body?.connected !== "boolean") {
+      return jsonNoStore(
+        { success: false, message: "connected must be true or false." },
+        400,
+      );
+    }
     const shouldConnect = body?.connected === true;
     if (!accountId) {
       return jsonNoStore(
         { success: false, message: "accountId is required." },
+        400,
+      );
+    }
+
+    if (!shouldConnect && body?.confirmation !== "disconnect-account") {
+      return jsonNoStore(
+        {
+          success: false,
+          message: "Disconnect confirmation is required.",
+        },
         400,
       );
     }
