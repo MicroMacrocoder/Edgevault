@@ -6,6 +6,16 @@ type EconomicSeriesRow = {
   series_key: string;
 };
 
+export type EconomicSeriesDetailsRow = EconomicSeriesRow & {
+  name: string;
+  category: string;
+  currency: string;
+  unit: string | null;
+  frequency: string | null;
+  official_source_name: string;
+  official_source_url: string;
+};
+
 type ExistingObservationRow = {
   series_id: string;
   reference_period: string;
@@ -19,12 +29,21 @@ type ExistingObservationRow = {
 type StoredObservationRow = ExistingObservationRow & {
   id: string;
   period_start: string;
+  period_end: string;
+  period_frequency: string;
+  raw_value: number | string | null;
+  unit: string | null;
+  measurement: string | null;
   source_series_id: string;
+  source_name: string;
+  source_url: string;
+  last_observed_at: string;
 };
 
 type StoredEconomicEventRow = {
   id: string;
   series_id: string | null;
+  event_time: string;
   reference_period: string | null;
   actual: number | string | null;
   previous: number | string | null;
@@ -182,6 +201,71 @@ function normalizedReferencePeriod(referencePeriod: string): string {
     .toLowerCase();
 }
 
+function latestEligibleObservation(
+  observations: StoredObservationRow[],
+  eventTime: string,
+  seriesKey: string
+): StoredObservationRow | null {
+  const eventTimestamp = new Date(eventTime).getTime();
+  if (!Number.isFinite(eventTimestamp) || eventTimestamp > Date.now()) {
+    return null;
+  }
+
+  const eligible = observations.filter((observation) => {
+    const periodEnd = new Date(`${observation.period_end}T23:59:59.999Z`).getTime();
+    return Number.isFinite(periodEnd) && periodEnd < eventTimestamp;
+  });
+
+  // JOLTS is normally released with a two-month reporting lag. The other
+  // supported monthly BLS reports use the latest completed month, while the
+  // quarterly series naturally resolve to the latest completed quarter.
+  const offsetFromLatest = seriesKey === "us-jolts-job-openings" ? 2 : 1;
+  return eligible[eligible.length - offsetFromLatest] || null;
+}
+
+export async function getEconomicSeriesHistory(options: {
+  seriesId: string;
+  limit?: number;
+}) {
+  const supabase = getSupabaseServer();
+  const limit = Math.min(Math.max(options.limit || 24, 1), 240);
+
+  const { data: seriesData, error: seriesError } = await supabase
+    .from("economic_event_series")
+    .select(
+      "id,series_key,name,category,currency,unit,frequency,official_source_name,official_source_url"
+    )
+    .eq("id", options.seriesId)
+    .maybeSingle();
+
+  if (seriesError) {
+    return { error: seriesError, series: null, observations: [] };
+  }
+
+  if (!seriesData) {
+    return {
+      error: new Error("Economic series not found."),
+      series: null,
+      observations: [],
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("economic_series_observations")
+    .select(
+      "id,series_id,reference_period,period_start,period_end,period_frequency,value,initial_value,raw_value,unit,measurement,source_series_id,source_name,source_url,is_preliminary,is_revised,revision_count,first_observed_at,last_observed_at"
+    )
+    .eq("series_id", options.seriesId)
+    .order("period_start", { ascending: false })
+    .limit(limit);
+
+  return {
+    error,
+    series: seriesData as EconomicSeriesDetailsRow,
+    observations: data || [],
+  };
+}
+
 export async function applyObservationsToEconomicEvents() {
   const supabase = getSupabaseServer();
   const { data: seriesData, error: seriesError } = await supabase
@@ -194,6 +278,12 @@ export async function applyObservationsToEconomicEvents() {
   const seriesIds = ((seriesData || []) as EconomicSeriesRow[]).map(
     (series) => series.id
   );
+  const seriesKeyById = new Map(
+    ((seriesData || []) as EconomicSeriesRow[]).map((series) => [
+      series.id,
+      series.series_key,
+    ])
+  );
 
   const observations: StoredObservationRow[] = [];
   const pageSize = 1000;
@@ -201,7 +291,7 @@ export async function applyObservationsToEconomicEvents() {
     const { data, error } = await supabase
       .from("economic_series_observations")
       .select(
-        "id,series_id,reference_period,period_start,value,initial_value,is_revised,revision_count,first_observed_at,source_series_id"
+        "id,series_id,reference_period,period_start,period_end,period_frequency,value,initial_value,raw_value,unit,measurement,is_revised,revision_count,first_observed_at,last_observed_at,source_series_id,source_name,source_url"
       )
       .in("series_id", seriesIds)
       .order("series_id", { ascending: true })
@@ -215,6 +305,7 @@ export async function applyObservationsToEconomicEvents() {
   }
 
   const observationByPeriod = new Map<string, StoredObservationRow>();
+  const observationsBySeries = new Map<string, StoredObservationRow[]>();
   const previousByObservationId = new Map<string, StoredObservationRow>();
   const previousBySeries = new Map<string, StoredObservationRow>();
 
@@ -223,6 +314,9 @@ export async function applyObservationsToEconomicEvents() {
       ? left.period_start.localeCompare(right.period_start)
       : left.series_id.localeCompare(right.series_id)
   )) {
+    const seriesObservations = observationsBySeries.get(observation.series_id) || [];
+    seriesObservations.push(observation);
+    observationsBySeries.set(observation.series_id, seriesObservations);
     const previous = previousBySeries.get(observation.series_id);
     if (previous) previousByObservationId.set(observation.id, previous);
     previousBySeries.set(observation.series_id, observation);
@@ -241,7 +335,6 @@ export async function applyObservationsToEconomicEvents() {
       .from("economic_events")
       .select("*")
       .in("series_id", seriesIds)
-      .not("reference_period", "is", null)
       .order("id", { ascending: true })
       .range(offset, offset + pageSize - 1);
 
@@ -253,21 +346,33 @@ export async function applyObservationsToEconomicEvents() {
 
   const updatedRows: StoredEconomicEventRow[] = [];
   for (const event of events) {
-    if (!event.series_id || !event.reference_period) continue;
-    const observation = observationByPeriod.get(
-      observationKey(
-        event.series_id,
-        normalizedReferencePeriod(event.reference_period)
-      )
-    );
+    if (!event.series_id) continue;
+    const seriesKey = seriesKeyById.get(event.series_id) || "";
+    const observation = event.reference_period
+      ? observationByPeriod.get(
+          observationKey(
+            event.series_id,
+            normalizedReferencePeriod(event.reference_period)
+          )
+        )
+      : latestEligibleObservation(
+          observationsBySeries.get(event.series_id) || [],
+          event.event_time,
+          seriesKey
+        );
     if (!observation) continue;
 
     const previous = previousByObservationId.get(observation.id);
     updatedRows.push({
       ...event,
+      reference_period: event.reference_period || observation.reference_period,
       actual: Number(observation.value),
+      initial_actual:
+        observation.initial_value == null
+          ? Number(observation.value)
+          : Number(observation.initial_value),
       previous: previous ? Number(previous.value) : null,
-      release_status: /\(R\)\s*$/i.test(event.reference_period)
+      release_status: /\(R\)\s*$/i.test(event.reference_period || "")
         ? "revised"
         : "released",
       raw_payload: {
