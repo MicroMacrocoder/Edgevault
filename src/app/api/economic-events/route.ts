@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getStoredEconomicEvents } from "@/lib/supabase/economicEvents";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 function validIsoDate(value: string | null): string | undefined {
   if (!value) return undefined;
@@ -28,10 +30,20 @@ export async function GET(request: Request) {
       );
     }
 
-    return NextResponse.json({
-      events,
-      lastUpdated: new Date().toISOString(),
-    });
+    return NextResponse.json(
+      {
+        events,
+        lastUpdated: new Date().toISOString(),
+      },
+      {
+        headers: {
+          "Cache-Control":
+            "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+          "CDN-Cache-Control": "no-store",
+          "Vercel-CDN-Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (error) {
     console.error("ECONOMIC EVENTS ROUTE ERROR:", error);
 
