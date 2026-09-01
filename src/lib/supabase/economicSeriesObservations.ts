@@ -66,9 +66,11 @@ function getSupabaseServer() {
 
 function chunkValues<T>(values: T[], size: number): T[][] {
   const chunks: T[][] = [];
+
   for (let index = 0; index < values.length; index += size) {
     chunks.push(values.slice(index, index + size));
   }
+
   return chunks;
 }
 
@@ -85,6 +87,7 @@ export async function upsertEconomicSeriesObservations(
 
   const supabase = getSupabaseServer();
   const seriesKeys = [...new Set(observations.map((row) => row.seriesKey))];
+
   const { data: seriesData, error: seriesError } = await supabase
     .from("economic_event_series")
     .select("id,series_key")
@@ -101,10 +104,16 @@ export async function upsertEconomicSeriesObservations(
       series.id,
     ])
   );
-  const missingSeries = seriesKeys.filter((seriesKey) => !seriesByKey.has(seriesKey));
+
+  const missingSeries = seriesKeys.filter(
+    (seriesKey) => !seriesByKey.has(seriesKey)
+  );
+
   if (missingSeries.length > 0) {
     return {
-      error: new Error(`Missing economic event series: ${missingSeries.join(", ")}`),
+      error: new Error(
+        `Missing economic event series: ${missingSeries.join(", ")}`
+      ),
       synced: 0,
       inserted: 0,
       revised: 0,
@@ -124,9 +133,13 @@ export async function upsertEconomicSeriesObservations(
       .in("series_id", seriesIds)
       .range(offset, offset + pageSize - 1);
 
-    if (error) return { error, synced: 0, inserted: 0, revised: 0 };
+    if (error) {
+      return { error, synced: 0, inserted: 0, revised: 0 };
+    }
+
     const page = (data || []) as ExistingObservationRow[];
     existingRows.push(...page);
+
     if (page.length < pageSize) break;
   }
 
@@ -136,17 +149,21 @@ export async function upsertEconomicSeriesObservations(
       row,
     ])
   );
+
   const observedAt = new Date().toISOString();
   let inserted = 0;
   let revised = 0;
 
   const rows = observations.map((observation) => {
     const seriesId = seriesByKey.get(observation.seriesKey)!;
+
     const existing = existingByKey.get(
       observationKey(seriesId, observation.referencePeriod)
     );
+
     const valueChanged =
       Boolean(existing) && Number(existing!.value) !== observation.value;
+
     if (!existing) inserted += 1;
     if (valueChanged) revised += 1;
 
@@ -181,12 +198,16 @@ export async function upsertEconomicSeriesObservations(
   });
 
   let synced = 0;
+
   for (const rowBatch of chunkValues(rows, 100)) {
     const { error } = await supabase
       .from("economic_series_observations")
       .upsert(rowBatch, { onConflict: "series_id,reference_period" });
 
-    if (error) return { error, synced, inserted, revised };
+    if (error) {
+      return { error, synced, inserted, revised };
+    }
+
     synced += rowBatch.length;
   }
 
@@ -207,19 +228,25 @@ function latestEligibleObservation(
   seriesKey: string
 ): StoredObservationRow | null {
   const eventTimestamp = new Date(eventTime).getTime();
-  if (!Number.isFinite(eventTimestamp) || eventTimestamp > Date.now()) {
+
+  if (!Number.isFinite(eventTimestamp)) {
     return null;
   }
 
   const eligible = observations.filter((observation) => {
-    const periodEnd = new Date(`${observation.period_end}T23:59:59.999Z`).getTime();
+    const periodEnd = new Date(
+      `${observation.period_end}T23:59:59.999Z`
+    ).getTime();
+
     return Number.isFinite(periodEnd) && periodEnd < eventTimestamp;
   });
 
-  // JOLTS is normally released with a two-month reporting lag. The other
-  // supported monthly BLS reports use the latest completed month, while the
-  // quarterly series naturally resolve to the latest completed quarter.
-  const offsetFromLatest = seriesKey === "us-jolts-job-openings" ? 2 : 1;
+  // JOLTS is normally released with a two-month reporting lag.
+  // Other supported monthly BLS reports use the latest completed month.
+  // Quarterly series use the latest completed quarter.
+  const offsetFromLatest =
+    seriesKey === "us-jolts-job-openings" ? 2 : 1;
+
   return eligible[eligible.length - offsetFromLatest] || null;
 }
 
@@ -239,7 +266,11 @@ export async function getEconomicSeriesHistory(options: {
     .maybeSingle();
 
   if (seriesError) {
-    return { error: seriesError, series: null, observations: [] };
+    return {
+      error: seriesError,
+      series: null,
+      observations: [],
+    };
   }
 
   if (!seriesData) {
@@ -268,16 +299,21 @@ export async function getEconomicSeriesHistory(options: {
 
 export async function applyObservationsToEconomicEvents() {
   const supabase = getSupabaseServer();
+
   const { data: seriesData, error: seriesError } = await supabase
     .from("economic_event_series")
     .select("id,series_key")
     .eq("source_connector", "bls")
     .eq("is_active", true);
 
-  if (seriesError) return { error: seriesError, updated: 0 };
+  if (seriesError) {
+    return { error: seriesError, updated: 0 };
+  }
+
   const seriesIds = ((seriesData || []) as EconomicSeriesRow[]).map(
     (series) => series.id
   );
+
   const seriesKeyById = new Map(
     ((seriesData || []) as EconomicSeriesRow[]).map((series) => [
       series.id,
@@ -287,6 +323,7 @@ export async function applyObservationsToEconomicEvents() {
 
   const observations: StoredObservationRow[] = [];
   const pageSize = 1000;
+
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase
       .from("economic_series_observations")
@@ -298,15 +335,25 @@ export async function applyObservationsToEconomicEvents() {
       .order("period_start", { ascending: true })
       .range(offset, offset + pageSize - 1);
 
-    if (error) return { error, updated: 0 };
+    if (error) {
+      return { error, updated: 0 };
+    }
+
     const page = (data || []) as StoredObservationRow[];
     observations.push(...page);
+
     if (page.length < pageSize) break;
   }
 
   const observationByPeriod = new Map<string, StoredObservationRow>();
-  const observationsBySeries = new Map<string, StoredObservationRow[]>();
-  const previousByObservationId = new Map<string, StoredObservationRow>();
+  const observationsBySeries = new Map<
+    string,
+    StoredObservationRow[]
+  >();
+  const previousByObservationId = new Map<
+    string,
+    StoredObservationRow
+  >();
   const previousBySeries = new Map<string, StoredObservationRow>();
 
   for (const observation of observations.sort((left, right) =>
@@ -314,12 +361,23 @@ export async function applyObservationsToEconomicEvents() {
       ? left.period_start.localeCompare(right.period_start)
       : left.series_id.localeCompare(right.series_id)
   )) {
-    const seriesObservations = observationsBySeries.get(observation.series_id) || [];
+    const seriesObservations =
+      observationsBySeries.get(observation.series_id) || [];
+
     seriesObservations.push(observation);
-    observationsBySeries.set(observation.series_id, seriesObservations);
+    observationsBySeries.set(
+      observation.series_id,
+      seriesObservations
+    );
+
     const previous = previousBySeries.get(observation.series_id);
-    if (previous) previousByObservationId.set(observation.id, previous);
+
+    if (previous) {
+      previousByObservationId.set(observation.id, previous);
+    }
+
     previousBySeries.set(observation.series_id, observation);
+
     observationByPeriod.set(
       observationKey(
         observation.series_id,
@@ -330,6 +388,7 @@ export async function applyObservationsToEconomicEvents() {
   }
 
   const events: StoredEconomicEventRow[] = [];
+
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase
       .from("economic_events")
@@ -338,59 +397,113 @@ export async function applyObservationsToEconomicEvents() {
       .order("id", { ascending: true })
       .range(offset, offset + pageSize - 1);
 
-    if (error) return { error, updated: 0 };
+    if (error) {
+      return { error, updated: 0 };
+    }
+
     const page = (data || []) as StoredEconomicEventRow[];
     events.push(...page);
+
     if (page.length < pageSize) break;
   }
 
   const updatedRows: StoredEconomicEventRow[] = [];
+
   for (const event of events) {
     if (!event.series_id) continue;
+
     const seriesKey = seriesKeyById.get(event.series_id) || "";
-    const observation = event.reference_period
+    const seriesObservations =
+      observationsBySeries.get(event.series_id) || [];
+
+    const eventTimestamp = new Date(event.event_time).getTime();
+
+    const isReleased =
+      Number.isFinite(eventTimestamp) &&
+      eventTimestamp <= Date.now();
+
+    const matchingObservation = event.reference_period
       ? observationByPeriod.get(
           observationKey(
             event.series_id,
             normalizedReferencePeriod(event.reference_period)
           )
         )
-      : latestEligibleObservation(
-          observationsBySeries.get(event.series_id) || [],
+      : undefined;
+
+    const actualObservation = isReleased
+      ? matchingObservation ||
+        latestEligibleObservation(
+          seriesObservations,
           event.event_time,
           seriesKey
-        );
-    if (!observation) continue;
+        )
+      : null;
 
-    const previous = previousByObservationId.get(observation.id);
-    updatedRows.push({
-      ...event,
-      reference_period: event.reference_period || observation.reference_period,
-      actual: Number(observation.value),
-      initial_actual:
-        observation.initial_value == null
-          ? Number(observation.value)
-          : Number(observation.initial_value),
-      previous: previous ? Number(previous.value) : null,
-      release_status: /\(R\)\s*$/i.test(event.reference_period || "")
-        ? "revised"
-        : "released",
-      raw_payload: {
-        ...(event.raw_payload || {}),
-        historical_value_source: "BLS Public Data API 2.0",
-        historical_value_source_series_id: observation.source_series_id,
-        historical_value_is_current_official: true,
-      },
-    });
+    const previousObservation = latestEligibleObservation(
+      seriesObservations,
+      event.event_time,
+      seriesKey
+    );
+
+    if (!actualObservation && !previousObservation) {
+      continue;
+    }
+
+    if (actualObservation) {
+      const previous = previousByObservationId.get(
+        actualObservation.id
+      );
+
+      const referencePeriod =
+        event.reference_period ||
+        actualObservation.reference_period;
+
+      updatedRows.push({
+        ...event,
+        reference_period: referencePeriod,
+        actual: Number(actualObservation.value),
+        initial_actual:
+          actualObservation.initial_value == null
+            ? Number(actualObservation.value)
+            : Number(actualObservation.initial_value),
+        previous: previous
+          ? Number(previous.value)
+          : event.previous,
+        release_status: /\(R\)\s*$/i.test(referencePeriod)
+          ? "revised"
+          : "released",
+        raw_payload: {
+          ...(event.raw_payload || {}),
+          historical_value_source: "BLS Public Data API 2.0",
+          historical_value_source_series_id:
+            actualObservation.source_series_id,
+          historical_value_is_current_official: true,
+        },
+      });
+    } else {
+      updatedRows.push({
+        ...event,
+        previous: previousObservation
+          ? Number(previousObservation.value)
+          : event.previous,
+        actual: event.actual,
+        release_status: event.release_status || "scheduled",
+      });
+    }
   }
 
   let updated = 0;
+
   for (const rowBatch of chunkValues(updatedRows, 100)) {
     const { error } = await supabase
       .from("economic_events")
       .upsert(rowBatch, { onConflict: "id" });
 
-    if (error) return { error, updated };
+    if (error) {
+      return { error, updated };
+    }
+
     updated += rowBatch.length;
   }
 
