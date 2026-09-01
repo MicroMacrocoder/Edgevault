@@ -30,7 +30,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const history = await fetchBlsHistoricalObservations();
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("mode") === "recent" ? "recent" : "full";
+    const forceLink = url.searchParams.get("forceLink") === "1";
+    const currentYear = new Date().getUTCFullYear();
+    const history = await fetchBlsHistoricalObservations(
+      mode === "recent"
+        ? { startYear: currentYear - 1, endYear: currentYear }
+        : undefined
+    );
     const result = await upsertEconomicSeriesObservations(history.observations);
 
     if (result.error) {
@@ -41,7 +49,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const eventResult = await applyObservationsToEconomicEvents();
+    const shouldLink =
+      mode === "full" || forceLink || result.inserted > 0 || result.revised > 0;
+    const eventResult = shouldLink
+      ? await applyObservationsToEconomicEvents()
+      : { error: null, updated: 0 };
     if (eventResult.error) {
       console.error("BLS EVENT VALUE LINK ERROR:", eventResult.error);
       return NextResponse.json(
@@ -52,11 +64,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       source: "U.S. Bureau of Labor Statistics",
+      mode,
       startYear: history.startYear,
       endYear: history.endYear,
       sourceSeries: history.sourceSeriesCount,
       derivedObservations: history.observations.length,
       synced: result.synced,
+      inserted: result.inserted,
       revised: result.revised,
       calendarEventsUpdated: eventResult.updated,
       syncedAt: new Date().toISOString(),

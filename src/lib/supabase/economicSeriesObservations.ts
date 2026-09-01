@@ -61,7 +61,7 @@ export async function upsertEconomicSeriesObservations(
   observations: EconomicSeriesObservationInput[]
 ) {
   if (observations.length === 0) {
-    return { error: null, synced: 0, revised: 0 };
+    return { error: null, synced: 0, inserted: 0, revised: 0 };
   }
 
   const supabase = getSupabaseServer();
@@ -72,7 +72,9 @@ export async function upsertEconomicSeriesObservations(
     .in("series_key", seriesKeys)
     .eq("is_active", true);
 
-  if (seriesError) return { error: seriesError, synced: 0, revised: 0 };
+  if (seriesError) {
+    return { error: seriesError, synced: 0, inserted: 0, revised: 0 };
+  }
 
   const seriesByKey = new Map(
     ((seriesData || []) as EconomicSeriesRow[]).map((series) => [
@@ -85,6 +87,7 @@ export async function upsertEconomicSeriesObservations(
     return {
       error: new Error(`Missing economic event series: ${missingSeries.join(", ")}`),
       synced: 0,
+      inserted: 0,
       revised: 0,
     };
   }
@@ -102,7 +105,7 @@ export async function upsertEconomicSeriesObservations(
       .in("series_id", seriesIds)
       .range(offset, offset + pageSize - 1);
 
-    if (error) return { error, synced: 0, revised: 0 };
+    if (error) return { error, synced: 0, inserted: 0, revised: 0 };
     const page = (data || []) as ExistingObservationRow[];
     existingRows.push(...page);
     if (page.length < pageSize) break;
@@ -115,6 +118,7 @@ export async function upsertEconomicSeriesObservations(
     ])
   );
   const observedAt = new Date().toISOString();
+  let inserted = 0;
   let revised = 0;
 
   const rows = observations.map((observation) => {
@@ -124,6 +128,7 @@ export async function upsertEconomicSeriesObservations(
     );
     const valueChanged =
       Boolean(existing) && Number(existing!.value) !== observation.value;
+    if (!existing) inserted += 1;
     if (valueChanged) revised += 1;
 
     return {
@@ -162,11 +167,11 @@ export async function upsertEconomicSeriesObservations(
       .from("economic_series_observations")
       .upsert(rowBatch, { onConflict: "series_id,reference_period" });
 
-    if (error) return { error, synced, revised };
+    if (error) return { error, synced, inserted, revised };
     synced += rowBatch.length;
   }
 
-  return { error: null, synced, revised };
+  return { error: null, synced, inserted, revised };
 }
 
 function normalizedReferencePeriod(referencePeriod: string): string {
