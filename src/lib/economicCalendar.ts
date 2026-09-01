@@ -101,6 +101,70 @@ const BLS_REPORT_MAPPINGS: BlsReportMapping[] = [
         title: "Core PPI MoM",
         category: "Inflation",
       },
+      {
+        seriesKey: "us-core-ppi-yoy",
+        title: "Core PPI YoY",
+        category: "Inflation",
+      },
+    ],
+  },
+  {
+    reportKey: "import-export-price-indexes",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/ximpim.htm",
+    matches: (summary) =>
+      summary.includes("import and export price indexes") ||
+      summary.includes("import/export price indexes"),
+    series: [
+      {
+        seriesKey: "us-import-price-index-mom",
+        title: "Import Price Index MoM",
+        category: "Inflation",
+      },
+      {
+        seriesKey: "us-import-price-index-yoy",
+        title: "Import Price Index YoY",
+        category: "Inflation",
+      },
+      {
+        seriesKey: "us-export-price-index-mom",
+        title: "Export Price Index MoM",
+        category: "Inflation",
+      },
+      {
+        seriesKey: "us-export-price-index-yoy",
+        title: "Export Price Index YoY",
+        category: "Inflation",
+      },
+    ],
+  },
+  {
+    reportKey: "real-earnings",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/realer.htm",
+    matches: (summary) => summary.includes("real earnings"),
+    series: [
+      {
+        seriesKey: "us-real-average-hourly-earnings-mom",
+        title: "Real Average Hourly Earnings MoM",
+        category: "Labour",
+      },
+      {
+        seriesKey: "us-real-average-hourly-earnings-yoy",
+        title: "Real Average Hourly Earnings YoY",
+        category: "Labour",
+      },
+    ],
+  },
+  {
+    reportKey: "employer-costs-for-employee-compensation",
+    scheduleUrl: "https://www.bls.gov/schedule/news_release/ecec.htm",
+    matches: (summary) =>
+      summary.includes("employer costs for employee compensation"),
+    series: [
+      {
+        seriesKey: "us-employer-compensation-cost-per-hour",
+        title: "Employer Compensation Cost per Hour",
+        category: "Labour",
+      },
     ],
   },
   {

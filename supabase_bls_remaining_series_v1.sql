@@ -1,0 +1,40 @@
+insert into public.economic_event_series (
+  series_key,
+  name,
+  country,
+  currency,
+  category,
+  event_kind,
+  frequency,
+  unit,
+  official_source_name,
+  official_source_url,
+  source_connector,
+  base_impact_score,
+  ranking_notes,
+  is_active,
+  metadata
+)
+values
+  ('us-core-ppi-yoy', 'Core PPI YoY', 'United States', 'USD', 'Inflation', 'data', 'Monthly', '%', 'U.S. Bureau of Labor Statistics', 'https://www.bls.gov/ppi/', 'bls', 75, 'Underlying producer inflation year over year.', true, '{}'::jsonb),
+  ('us-import-price-index-mom', 'Import Price Index MoM', 'United States', 'USD', 'Inflation', 'data', 'Monthly', '%', 'U.S. Bureau of Labor Statistics', 'https://www.bls.gov/mxp/', 'bls', 70, 'Monthly change in U.S. import prices.', true, '{}'::jsonb),
+  ('us-import-price-index-yoy', 'Import Price Index YoY', 'United States', 'USD', 'Inflation', 'data', 'Monthly', '%', 'U.S. Bureau of Labor Statistics', 'https://www.bls.gov/mxp/', 'bls', 70, 'Annual change in U.S. import prices.', true, '{}'::jsonb),
+  ('us-export-price-index-mom', 'Export Price Index MoM', 'United States', 'USD', 'Inflation', 'data', 'Monthly', '%', 'U.S. Bureau of Labor Statistics', 'https://www.bls.gov/mxp/', 'bls', 65, 'Monthly change in U.S. export prices.', true, '{}'::jsonb),
+  ('us-export-price-index-yoy', 'Export Price Index YoY', 'United States', 'USD', 'Inflation', 'data', 'Monthly', '%', 'U.S. Bureau of Labor Statistics', 'https://www.bls.gov/mxp/', 'bls', 65, 'Annual change in U.S. export prices.', true, '{}'::jsonb),
+  ('us-real-average-hourly-earnings-mom', 'Real Average Hourly Earnings MoM', 'United States', 'USD', 'Labour', 'data', 'Monthly', '%', 'U.S. Bureau of Labor Statistics', 'https://www.bls.gov/ces/', 'bls', 75, 'Monthly change in inflation-adjusted hourly earnings.', true, '{}'::jsonb),
+  ('us-real-average-hourly-earnings-yoy', 'Real Average Hourly Earnings YoY', 'United States', 'USD', 'Labour', 'data', 'Monthly', '%', 'U.S. Bureau of Labor Statistics', 'https://www.bls.gov/ces/', 'bls', 75, 'Annual change in inflation-adjusted hourly earnings.', true, '{}'::jsonb),
+  ('us-employer-compensation-cost-per-hour', 'Employer Compensation Cost per Hour', 'United States', 'USD', 'Labour', 'data', 'Quarterly', '$', 'U.S. Bureau of Labor Statistics', 'https://www.bls.gov/ecec/', 'bls', 65, 'Total employer compensation cost per hour worked.', true, '{}'::jsonb)
+on conflict (series_key) do update set
+  name = excluded.name,
+  category = excluded.category,
+  event_kind = excluded.event_kind,
+  frequency = excluded.frequency,
+  unit = excluded.unit,
+  official_source_name = excluded.official_source_name,
+  official_source_url = excluded.official_source_url,
+  source_connector = excluded.source_connector,
+  base_impact_score = excluded.base_impact_score,
+  ranking_notes = excluded.ranking_notes,
+  is_active = excluded.is_active,
+  metadata = excluded.metadata,
+  updated_at = now();

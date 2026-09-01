@@ -13,8 +13,11 @@ const BLS_SOURCE_SERIES_IDS = [
   "WPSFD4",
   "WPUFD4",
   "WPSFD49116",
+  "EIUIR",
+  "EIUIQ",
   "JTS000000000000000JOL",
   "CIS1010000000000Q",
+  "CMU1010000000000D",
   "PRS85006092",
   "PRS85006112",
 ] as const;
@@ -79,7 +82,13 @@ export type EconomicSeriesObservationInput = {
   isRevised: boolean;
 };
 
-type Transformation = "direct" | "change" | "mom" | "yoy";
+type Transformation =
+  | "direct"
+  | "change"
+  | "mom"
+  | "yoy"
+  | "real_mom"
+  | "real_yoy";
 
 type TargetSeriesDefinition = {
   seriesKey: string;
@@ -89,6 +98,7 @@ type TargetSeriesDefinition = {
   measurement: string;
   transformation: Transformation;
   multiplier?: number;
+  denominatorSourceSeriesId?: (typeof BLS_SOURCE_SERIES_IDS)[number];
 };
 
 const TARGET_SERIES: TargetSeriesDefinition[] = [
@@ -188,6 +198,72 @@ const TARGET_SERIES: TargetSeriesDefinition[] = [
     unit: "%",
     measurement: "month_over_month_percent_change",
     transformation: "mom",
+  },
+  {
+    seriesKey: "us-core-ppi-yoy",
+    sourceSeriesId: "WPSFD49116",
+    frequency: "monthly",
+    unit: "%",
+    measurement: "year_over_year_percent_change",
+    transformation: "yoy",
+  },
+  {
+    seriesKey: "us-real-average-hourly-earnings-mom",
+    sourceSeriesId: "CES0500000003",
+    denominatorSourceSeriesId: "CUSR0000SA0",
+    frequency: "monthly",
+    unit: "%",
+    measurement: "real_month_over_month_percent_change",
+    transformation: "real_mom",
+  },
+  {
+    seriesKey: "us-real-average-hourly-earnings-yoy",
+    sourceSeriesId: "CES0500000003",
+    denominatorSourceSeriesId: "CUSR0000SA0",
+    frequency: "monthly",
+    unit: "%",
+    measurement: "real_year_over_year_percent_change",
+    transformation: "real_yoy",
+  },
+  {
+    seriesKey: "us-import-price-index-mom",
+    sourceSeriesId: "EIUIR",
+    frequency: "monthly",
+    unit: "%",
+    measurement: "month_over_month_percent_change",
+    transformation: "mom",
+  },
+  {
+    seriesKey: "us-import-price-index-yoy",
+    sourceSeriesId: "EIUIR",
+    frequency: "monthly",
+    unit: "%",
+    measurement: "year_over_year_percent_change",
+    transformation: "yoy",
+  },
+  {
+    seriesKey: "us-export-price-index-mom",
+    sourceSeriesId: "EIUIQ",
+    frequency: "monthly",
+    unit: "%",
+    measurement: "month_over_month_percent_change",
+    transformation: "mom",
+  },
+  {
+    seriesKey: "us-export-price-index-yoy",
+    sourceSeriesId: "EIUIQ",
+    frequency: "monthly",
+    unit: "%",
+    measurement: "year_over_year_percent_change",
+    transformation: "yoy",
+  },
+  {
+    seriesKey: "us-employer-compensation-cost-per-hour",
+    sourceSeriesId: "CMU1010000000000D",
+    frequency: "quarterly",
+    unit: "$",
+    measurement: "total_compensation_cost_per_hour",
+    transformation: "direct",
   },
   {
     seriesKey: "us-jolts-job-openings",
@@ -310,14 +386,43 @@ function normalizeSourceSeries(series: BlsApiSeries): SourceObservation[] {
 function transformedValue(
   definition: TargetSeriesDefinition,
   current: SourceObservation,
-  observationsByPeriod: ReadonlyMap<number, SourceObservation>
+  observationsByPeriod: ReadonlyMap<number, SourceObservation>,
+  denominatorByPeriod?: ReadonlyMap<number, SourceObservation>
 ): number | null {
   const multiplier = definition.multiplier || 1;
   if (definition.transformation === "direct") {
     return roundValue(current.rawValue * multiplier);
   }
 
-  const comparisonOffset = definition.transformation === "yoy" ? 12 : 1;
+  const comparisonOffset =
+    definition.transformation === "yoy" ||
+    definition.transformation === "real_yoy"
+      ? 12
+      : 1;
+
+  if (
+    definition.transformation === "real_mom" ||
+    definition.transformation === "real_yoy"
+  ) {
+    const denominator = denominatorByPeriod?.get(current.periodIndex);
+    const previous = denominatorByPeriod?.get(
+      current.periodIndex - comparisonOffset
+    );
+    const nominalPrevious = observationsByPeriod.get(
+      current.periodIndex - comparisonOffset
+    );
+
+    if (!denominator || !previous || !nominalPrevious) return null;
+    if (denominator.rawValue === 0 || previous.rawValue === 0) return null;
+
+    return roundValue(
+      ((current.rawValue / denominator.rawValue) /
+        (nominalPrevious.rawValue / previous.rawValue) -
+        1) *
+        100
+    );
+  }
+
   const previous = observationsByPeriod.get(current.periodIndex - comparisonOffset);
   if (!previous) return null;
 
@@ -351,6 +456,12 @@ export function deriveBlsEconomicObservations(
     const observationsByPeriod = new Map(
       source.map((observation) => [observation.periodIndex, observation])
     );
+    const denominatorSource = definition.denominatorSourceSeriesId
+      ? sources.get(definition.denominatorSourceSeriesId) || []
+      : [];
+    const denominatorByPeriod = new Map(
+      denominatorSource.map((observation) => [observation.periodIndex, observation])
+    );
 
     for (const current of source) {
       if (
@@ -361,7 +472,12 @@ export function deriveBlsEconomicObservations(
         continue;
       }
 
-      const value = transformedValue(definition, current, observationsByPeriod);
+      const value = transformedValue(
+        definition,
+        current,
+        observationsByPeriod,
+        denominatorByPeriod
+      );
       if (value === null) continue;
 
       const period = periodBoundaries(
