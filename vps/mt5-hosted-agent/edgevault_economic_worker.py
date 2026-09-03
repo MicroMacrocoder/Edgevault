@@ -148,7 +148,15 @@ def synchronize_calendar() -> dict[str, Any]:
         bea_result.get("fetched"),
         bea_result.get("synced"),
     )
-    return {"bls": bls_result, "bea": bea_result}
+    fed_result = request_json(
+        "/api/economic-events/sync/fed", method="POST", authorized=True
+    )
+    LOG.info(
+        "Federal Reserve calendar synchronized: fetched=%s synced=%s",
+        fed_result.get("fetched"),
+        fed_result.get("synced"),
+    )
+    return {"bls": bls_result, "bea": bea_result, "fed": fed_result}
 
 
 def synchronize_history(mode: str, force_link: bool = False) -> dict[str, Any]:
