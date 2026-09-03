@@ -1,0 +1,43 @@
+insert into public.economic_event_series (
+  series_key,
+  name,
+  country,
+  currency,
+  category,
+  event_kind,
+  frequency,
+  unit,
+  official_source_name,
+  official_source_url,
+  source_connector,
+  base_impact_score,
+  ranking_notes,
+  is_active,
+  metadata
+)
+values
+  ('us-retail-sales-mom', 'Retail Sales MoM', 'United States', 'USD', 'Consumer Spending', 'data', 'Monthly', '%', 'U.S. Census Bureau', 'https://www.census.gov/retail/', 'census', 85, 'Advance monthly retail and food-services sales release.', true, jsonb_build_object('program_code', 'MARTS')),
+  ('us-core-retail-sales-mom', 'Core Retail Sales MoM', 'United States', 'USD', 'Consumer Spending', 'data', 'Monthly', '%', 'U.S. Census Bureau', 'https://www.census.gov/retail/', 'census', 80, 'Advance retail sales excluding motor vehicle and parts dealers.', true, jsonb_build_object('program_code', 'MARTS')),
+  ('us-durable-goods-orders-mom', 'Durable Goods Orders MoM', 'United States', 'USD', 'Manufacturing', 'data', 'Monthly', '%', 'U.S. Census Bureau', 'https://www.census.gov/manufacturing/m3/', 'census', 80, 'Advance monthly change in durable-goods new orders.', true, jsonb_build_object('program_code', 'M3ADV')),
+  ('us-core-durable-goods-orders-mom', 'Core Durable Goods Orders MoM', 'United States', 'USD', 'Manufacturing', 'data', 'Monthly', '%', 'U.S. Census Bureau', 'https://www.census.gov/manufacturing/m3/', 'census', 75, 'Advance durable-goods new orders excluding transportation.', true, jsonb_build_object('program_code', 'M3ADV')),
+  ('us-factory-orders-mom', 'Factory Orders MoM', 'United States', 'USD', 'Manufacturing', 'data', 'Monthly', '%', 'U.S. Census Bureau', 'https://www.census.gov/manufacturing/m3/', 'census', 65, 'Full manufacturing new-orders release.', true, jsonb_build_object('program_code', 'M3')),
+  ('us-wholesale-inventories-mom', 'Wholesale Inventories MoM', 'United States', 'USD', 'Inventories', 'data', 'Monthly', '%', 'U.S. Census Bureau', 'https://www.census.gov/wholesale/', 'census', 55, 'Monthly change in merchant-wholesaler inventories.', true, jsonb_build_object('program_code', 'MWTS')),
+  ('us-building-permits', 'Building Permits', 'United States', 'USD', 'Construction & Housing', 'data', 'Monthly', 'thousands', 'U.S. Census Bureau', 'https://www.census.gov/construction/nrc/', 'census', 70, 'Housing units authorized by building permits at a seasonally adjusted annual rate.', true, jsonb_build_object('program_code', 'RESCONST')),
+  ('us-housing-starts', 'Housing Starts', 'United States', 'USD', 'Construction & Housing', 'data', 'Monthly', 'thousands', 'U.S. Census Bureau', 'https://www.census.gov/construction/nrc/', 'census', 70, 'Housing units started at a seasonally adjusted annual rate.', true, jsonb_build_object('program_code', 'RESCONST')),
+  ('us-new-home-sales', 'New Home Sales', 'United States', 'USD', 'Construction & Housing', 'data', 'Monthly', 'thousands', 'U.S. Census Bureau', 'https://www.census.gov/construction/nrs/', 'census', 60, 'New single-family houses sold at a seasonally adjusted annual rate.', true, jsonb_build_object('program_code', 'RESSALES')),
+  ('us-construction-spending-mom', 'Construction Spending MoM', 'United States', 'USD', 'Construction & Housing', 'data', 'Monthly', '%', 'U.S. Census Bureau', 'https://www.census.gov/constructionspending/', 'census', 60, 'Monthly change in total construction put in place.', true, jsonb_build_object('program_code', 'VIP')),
+  ('us-trade-balance', 'Trade Balance', 'United States', 'USD', 'International Trade', 'data', 'Monthly', '$M', 'U.S. Census Bureau', 'https://www.census.gov/foreign-trade/', 'census', 65, 'Balance of U.S. goods and services trade.', true, jsonb_build_object('program_code', 'FTD'))
+on conflict (series_key) do update set
+  name = excluded.name,
+  category = excluded.category,
+  event_kind = excluded.event_kind,
+  frequency = excluded.frequency,
+  unit = excluded.unit,
+  official_source_name = excluded.official_source_name,
+  official_source_url = excluded.official_source_url,
+  source_connector = excluded.source_connector,
+  base_impact_score = excluded.base_impact_score,
+  ranking_notes = excluded.ranking_notes,
+  is_active = excluded.is_active,
+  metadata = excluded.metadata,
+  updated_at = now();
