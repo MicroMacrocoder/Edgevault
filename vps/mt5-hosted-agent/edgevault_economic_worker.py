@@ -59,6 +59,11 @@ FULL_HISTORY_SECONDS = max(
     21600, int(os.getenv("ECONOMIC_FULL_HISTORY_SECONDS", "86400"))
 )
 RELEASE_RETRY_SECONDS = (30, 60, 120, 300, 600, 900)
+SCHEDULE_SYNC_PATHS = {
+    "umich": "/api/economic-events/sync/umich",
+    "ism": "/api/economic-events/sync/ism",
+    "conference_board": "/api/economic-events/sync/conference-board",
+}
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
@@ -180,6 +185,32 @@ def synchronize_calendar() -> dict[str, Any]:
         treasury_result.get("fetched"),
         treasury_result.get("synced"),
     )
+    umich_result = request_json(
+        "/api/economic-events/sync/umich", method="POST", authorized=True
+    )
+    LOG.info(
+        "University of Michigan calendar synchronized: fetched=%s synced=%s",
+        umich_result.get("fetched"),
+        umich_result.get("synced"),
+    )
+    ism_result = request_json(
+        "/api/economic-events/sync/ism", method="POST", authorized=True
+    )
+    LOG.info(
+        "ISM calendar synchronized: fetched=%s synced=%s",
+        ism_result.get("fetched"),
+        ism_result.get("synced"),
+    )
+    conference_board_result = request_json(
+        "/api/economic-events/sync/conference-board",
+        method="POST",
+        authorized=True,
+    )
+    LOG.info(
+        "Conference Board calendar synchronized: fetched=%s synced=%s",
+        conference_board_result.get("fetched"),
+        conference_board_result.get("synced"),
+    )
     return {
         "bls": bls_result,
         "bea": bea_result,
@@ -187,6 +218,9 @@ def synchronize_calendar() -> dict[str, Any]:
         "census": census_result,
         "dol": dol_result,
         "treasury": treasury_result,
+        "umich": umich_result,
+        "ism": ism_result,
+        "conference_board": conference_board_result,
     }
 
 
@@ -262,6 +296,18 @@ def synchronize_dol_history() -> dict[str, Any]:
     return result
 
 
+def synchronize_schedule_source(source: str) -> dict[str, Any]:
+    path = SCHEDULE_SYNC_PATHS[source]
+    result = request_json(path, method="POST", authorized=True)
+    LOG.info(
+        "%s report link synchronized after release: fetched=%s synced=%s",
+        source,
+        result.get("fetched"),
+        result.get("synced"),
+    )
+    return result
+
+
 def fetch_upcoming_release_times(source_agency: str) -> list[datetime]:
     now = datetime.now(timezone.utc)
     query = urllib.parse.urlencode(
@@ -301,7 +347,7 @@ def save_completed_releases(completed: dict[str, str]) -> None:
     retained = {
         event_time: completed_at
         for event_time, completed_at in completed.items()
-        if parse_iso(event_time) >= cutoff
+        if parse_iso(event_time.rsplit(":", 1)[-1]) >= cutoff
     }
     temporary = STATE_PATH.with_suffix(".tmp")
     temporary.write_text(
@@ -319,6 +365,9 @@ def refresh_release_watches(
         "bea": "U.S. Bureau of Economic Analysis",
         "census": "U.S. Census Bureau",
         "dol": "U.S. Department of Labor, Employment and Training Administration",
+        "umich": "University of Michigan Surveys of Consumers",
+        "ism": "Institute for Supply Management",
+        "conference_board": "The Conference Board",
     }
     for source, source_agency in sources.items():
         for event_time in fetch_upcoming_release_times(source_agency):
@@ -341,6 +390,30 @@ def process_release_watches(
     now = datetime.now(timezone.utc)
     for key, watch in list(watches.items()):
         if now < watch.next_attempt_at:
+            continue
+
+        if watch.source in SCHEDULE_SYNC_PATHS:
+            synchronize_schedule_source(watch.source)
+            watch.attempts += 1
+            if watch.attempts >= len(RELEASE_RETRY_SECONDS):
+                completed[key] = now.isoformat()
+                watches.pop(key, None)
+                save_completed_releases(completed)
+                LOG.info(
+                    "Finished late-release link checks for %s release %s.",
+                    watch.source,
+                    key,
+                )
+            else:
+                watch.next_attempt_at = now + timedelta(
+                    seconds=RELEASE_RETRY_SECONDS[watch.attempts]
+                )
+                LOG.info(
+                    "Checked %s report link after release %s; retrying in %ss.",
+                    watch.source,
+                    key,
+                    RELEASE_RETRY_SECONDS[watch.attempts],
+                )
             continue
 
         if watch.source == "bls":
