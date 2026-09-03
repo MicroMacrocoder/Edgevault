@@ -22,7 +22,7 @@ const BLS_SOURCE_SERIES_IDS = [
   "PRS85006112",
 ] as const;
 
-type PeriodFrequency = "monthly" | "quarterly";
+type PeriodFrequency = "weekly" | "monthly" | "quarterly";
 
 type BlsApiFootnote = {
   code?: string | null;

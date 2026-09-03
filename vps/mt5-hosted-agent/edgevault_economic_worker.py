@@ -156,7 +156,29 @@ def synchronize_calendar() -> dict[str, Any]:
         fed_result.get("fetched"),
         fed_result.get("synced"),
     )
-    return {"bls": bls_result, "bea": bea_result, "fed": fed_result}
+    census_result = request_json(
+        "/api/economic-events/sync/census", method="POST", authorized=True
+    )
+    LOG.info(
+        "Census calendar synchronized: fetched=%s synced=%s",
+        census_result.get("fetched"),
+        census_result.get("synced"),
+    )
+    dol_result = request_json(
+        "/api/economic-events/sync/dol", method="POST", authorized=True
+    )
+    LOG.info(
+        "DOL calendar synchronized: fetched=%s synced=%s",
+        dol_result.get("fetched"),
+        dol_result.get("synced"),
+    )
+    return {
+        "bls": bls_result,
+        "bea": bea_result,
+        "fed": fed_result,
+        "census": census_result,
+        "dol": dol_result,
+    }
 
 
 def synchronize_history(mode: str, force_link: bool = False) -> dict[str, Any]:
@@ -189,6 +211,40 @@ def synchronize_bea_history() -> dict[str, Any]:
     )
     LOG.info(
         "BEA history synchronized: synced=%s inserted=%s revised=%s events=%s",
+        result.get("synced"),
+        result.get("inserted"),
+        result.get("revised"),
+        result.get("calendarEventsUpdated"),
+    )
+    return result
+
+
+def synchronize_census_history() -> dict[str, Any]:
+    result = request_json(
+        "/api/economic-events/sync/census/history",
+        method="POST",
+        authorized=True,
+        timeout=240,
+    )
+    LOG.info(
+        "Census history synchronized: synced=%s inserted=%s revised=%s events=%s",
+        result.get("synced"),
+        result.get("inserted"),
+        result.get("revised"),
+        result.get("calendarEventsUpdated"),
+    )
+    return result
+
+
+def synchronize_dol_history() -> dict[str, Any]:
+    result = request_json(
+        "/api/economic-events/sync/dol/history",
+        method="POST",
+        authorized=True,
+        timeout=240,
+    )
+    LOG.info(
+        "DOL history synchronized: synced=%s inserted=%s revised=%s events=%s",
         result.get("synced"),
         result.get("inserted"),
         result.get("revised"),
@@ -252,6 +308,8 @@ def refresh_release_watches(
     sources = {
         "bls": "U.S. Bureau of Labor Statistics",
         "bea": "U.S. Bureau of Economic Analysis",
+        "census": "U.S. Census Bureau",
+        "dol": "U.S. Department of Labor, Employment and Training Administration",
     }
     for source, source_agency in sources.items():
         for event_time in fetch_upcoming_release_times(source_agency):
@@ -265,7 +323,7 @@ def refresh_release_watches(
                 event_time=event_time,
                 next_attempt_at=max(now, event_time + timedelta(seconds=30)),
             )
-    LOG.info("Watching %s upcoming BLS release times.", len(watches))
+    LOG.info("Watching %s upcoming economic release times.", len(watches))
 
 
 def process_release_watches(
@@ -276,11 +334,14 @@ def process_release_watches(
         if now < watch.next_attempt_at:
             continue
 
-        result = (
-            synchronize_history("recent")
-            if watch.source == "bls"
-            else synchronize_bea_history()
-        )
+        if watch.source == "bls":
+            result = synchronize_history("recent")
+        elif watch.source == "bea":
+            result = synchronize_bea_history()
+        elif watch.source == "census":
+            result = synchronize_census_history()
+        else:
+            result = synchronize_dol_history()
         changed = int(result.get("inserted") or 0) + int(result.get("revised") or 0)
         watch.attempts += 1
 
@@ -288,14 +349,14 @@ def process_release_watches(
             completed[key] = now.isoformat()
             watches.pop(key, None)
             save_completed_releases(completed)
-            LOG.info("Captured BLS release %s after %s attempts.", key, watch.attempts)
+            LOG.info("Captured %s release %s after %s attempts.", watch.source, key, watch.attempts)
             continue
 
         if watch.attempts >= len(RELEASE_RETRY_SECONDS):
             completed[key] = now.isoformat()
             watches.pop(key, None)
             save_completed_releases(completed)
-            LOG.warning("No new BLS values found for release %s after all retries.", key)
+            LOG.warning("No new %s values found for release %s after all retries.", watch.source, key)
             continue
 
         watch.next_attempt_at = now + timedelta(
@@ -327,11 +388,15 @@ def main() -> None:
             if startup_history_pending:
                 synchronize_history("recent", force_link=True)
                 synchronize_bea_history()
+                synchronize_census_history()
+                synchronize_dol_history()
                 startup_history_pending = False
 
             if now_monotonic >= next_full_history:
                 synchronize_history("full")
                 synchronize_bea_history()
+                synchronize_census_history()
+                synchronize_dol_history()
                 next_full_history = now_monotonic + FULL_HISTORY_SECONDS
 
             if now_monotonic >= next_event_refresh:
