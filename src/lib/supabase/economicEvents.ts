@@ -94,6 +94,9 @@ export async function upsertOfficialEconomicEvents(
     const existing = existingByExternalId.get(sourceEvent.externalId);
     const expectedImpactScore =
       existing?.expected_impact_score ?? series.base_impact_score;
+    const eventTimestamp = new Date(sourceEvent.eventTime).getTime();
+    const isReleased =
+      Number.isFinite(eventTimestamp) && eventTimestamp <= Date.now();
 
     return {
       external_id: sourceEvent.externalId,
@@ -105,7 +108,7 @@ export async function upsertOfficialEconomicEvents(
       event_time: sourceEvent.eventTime,
       forecast: null,
       previous: existing?.previous ?? null,
-      actual: existing?.actual ?? null,
+      actual: isReleased ? existing?.actual ?? null : null,
       unit: series.unit,
       source: series.official_source_name,
       event_kind: sourceEvent.eventKind,
@@ -116,9 +119,11 @@ export async function upsertOfficialEconomicEvents(
       source_event_id: sourceEvent.sourceEventId,
       source_published_at:
         existing?.source_published_at ?? sourceEvent.sourcePublishedAt,
-      release_status: existing?.release_status ?? "scheduled",
-      initial_actual: existing?.initial_actual ?? null,
-      revised_previous: existing?.revised_previous ?? null,
+      release_status: isReleased
+        ? existing?.release_status ?? "scheduled"
+        : "scheduled",
+      initial_actual: isReleased ? existing?.initial_actual ?? null : null,
+      revised_previous: isReleased ? existing?.revised_previous ?? null : null,
       base_impact_score: series.base_impact_score,
       expected_impact_score: expectedImpactScore,
       realized_impact_score: existing?.realized_impact_score ?? null,

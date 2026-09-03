@@ -493,8 +493,12 @@ export async function applyObservationsToEconomicEvents(options?: {
         previous: previousObservation
           ? Number(previousObservation.value)
           : event.previous,
-        actual: event.actual,
-        release_status: event.release_status || "scheduled",
+        actual: isReleased ? event.actual : null,
+        initial_actual: isReleased ? event.initial_actual : null,
+        revised_previous: isReleased ? event.revised_previous : null,
+        release_status: isReleased
+          ? event.release_status || "scheduled"
+          : "scheduled",
       });
     }
   }
