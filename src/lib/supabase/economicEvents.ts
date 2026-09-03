@@ -120,7 +120,8 @@ export async function upsertOfficialEconomicEvents(
       source_published_at:
         existing?.source_published_at ?? sourceEvent.sourcePublishedAt,
       release_status: isReleased
-        ? existing?.release_status ?? "scheduled"
+        ? sourceEvent.releaseStatus ??
+          (existing?.release_status === "revised" ? "revised" : "released")
         : "scheduled",
       initial_actual: isReleased ? existing?.initial_actual ?? null : null,
       revised_previous: isReleased ? existing?.revised_previous ?? null : null,

@@ -172,12 +172,21 @@ def synchronize_calendar() -> dict[str, Any]:
         dol_result.get("fetched"),
         dol_result.get("synced"),
     )
+    treasury_result = request_json(
+        "/api/economic-events/sync/treasury", method="POST", authorized=True
+    )
+    LOG.info(
+        "Treasury calendar synchronized: fetched=%s synced=%s",
+        treasury_result.get("fetched"),
+        treasury_result.get("synced"),
+    )
     return {
         "bls": bls_result,
         "bea": bea_result,
         "fed": fed_result,
         "census": census_result,
         "dol": dol_result,
+        "treasury": treasury_result,
     }
 
 
