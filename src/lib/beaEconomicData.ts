@@ -61,7 +61,7 @@ const BEA_RELEASES = [
   },
   {
     key: "personal-income-and-outlays",
-    match: (title: string) => /^personal income and outlays$/i.test(title),
+    match: (title: string) => /^personal income and outlays\b/i.test(title),
     series: [
       { seriesKey: "us-pce-price-index-mom", title: "PCE Price Index MoM", category: "Inflation" },
       { seriesKey: "us-pce-price-index-yoy", title: "PCE Price Index YoY", category: "Inflation" },
@@ -136,7 +136,11 @@ function parseBeaSchedule(html: string): Array<{ date: Date; title: string }> {
     if (cells.length < 3) continue;
     const dateParts = parseScheduleDate(cells[0], year);
     const timeMatch = cells[1].match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-    const title = cells.slice(2).join(" ").trim();
+    const title = cells
+      .slice(2)
+      .join(" ")
+      .replace(/^(?:news|data)\s+/i, "")
+      .trim();
     if (!dateParts || !timeMatch || !title) continue;
     let hour = Number(timeMatch[1]) % 12;
     if (timeMatch[3].toUpperCase() === "PM") hour += 12;
