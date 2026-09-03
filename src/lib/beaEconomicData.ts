@@ -135,7 +135,7 @@ function parseBeaSchedule(html: string): Array<{ date: Date; title: string }> {
     const cells = [...match[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((cell) => decodeHtml(cell[1]));
     if (cells.length < 3) continue;
     const dateParts = parseScheduleDate(cells[0], year);
-    const timeMatch = cells[1].match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    const timeMatch = cells[0].match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
     const title = cells
       .slice(2)
       .join(" ")
