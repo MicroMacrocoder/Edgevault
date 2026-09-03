@@ -372,7 +372,7 @@ export async function fetchBeaHistoricalObservations(): Promise<{
   const [gdpRows, pceRows, incomeRows] = await Promise.all([
     fetchBeaTable({ tableName: "T10101", frequency: "Q", years }),
     fetchBeaTable({ tableName: "T20804", frequency: "M", years }),
-    fetchBeaTable({ tableName: "T20100", frequency: "M", years }),
+    fetchBeaTable({ tableName: "T20600", frequency: "M", years }),
   ]);
 
   const observations: EconomicSeriesObservationInput[] = [];
@@ -406,8 +406,8 @@ export async function fetchBeaHistoricalObservations(): Promise<{
     ...deriveMonthlyYearOverYear(pceRows, pceHeadline, "us-pce-price-index-yoy", "T20804"),
     ...deriveMonthlyChanges(pceRows, pceCore, "us-core-pce-price-index-mom", "T20804"),
     ...deriveMonthlyYearOverYear(pceRows, pceCore, "us-core-pce-price-index-yoy", "T20804"),
-    ...deriveMonthlyChanges(incomeRows, income, "us-personal-income-mom", "T20100"),
-    ...deriveMonthlyChanges(incomeRows, spending, "us-personal-spending-mom", "T20100"),
+    ...deriveMonthlyChanges(incomeRows, income, "us-personal-income-mom", "T20600"),
+    ...deriveMonthlyChanges(incomeRows, spending, "us-personal-spending-mom", "T20600"),
   ];
 
   observations.push(...derived.map(toObservation));

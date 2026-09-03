@@ -143,7 +143,7 @@ values
     true,
     jsonb_build_object(
       'dataset', 'NIPA',
-      'table_name', 'T20100',
+      'table_name', 'T20600',
       'line_description', 'Personal income',
       'release_family', 'Personal Income and Outlays'
     )
@@ -165,7 +165,7 @@ values
     true,
     jsonb_build_object(
       'dataset', 'NIPA',
-      'table_name', 'T20100',
+      'table_name', 'T20600',
       'line_description', 'Personal consumption expenditures',
       'release_family', 'Personal Income and Outlays'
     )
