@@ -63,6 +63,9 @@ SCHEDULE_SYNC_PATHS = {
     "umich": "/api/economic-events/sync/umich",
     "ism": "/api/economic-events/sync/ism",
     "conference_board": "/api/economic-events/sync/conference-board",
+    "adp": "/api/economic-events/sync/adp",
+    "nar": "/api/economic-events/sync/nar",
+    "regional_fed": "/api/economic-events/sync/regional-fed",
 }
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
@@ -211,6 +214,30 @@ def synchronize_calendar() -> dict[str, Any]:
         conference_board_result.get("fetched"),
         conference_board_result.get("synced"),
     )
+    adp_result = request_json(
+        "/api/economic-events/sync/adp", method="POST", authorized=True
+    )
+    LOG.info(
+        "ADP calendar synchronized: fetched=%s synced=%s",
+        adp_result.get("fetched"),
+        adp_result.get("synced"),
+    )
+    nar_result = request_json(
+        "/api/economic-events/sync/nar", method="POST", authorized=True
+    )
+    LOG.info(
+        "NAR calendar synchronized: fetched=%s synced=%s",
+        nar_result.get("fetched"),
+        nar_result.get("synced"),
+    )
+    regional_fed_result = request_json(
+        "/api/economic-events/sync/regional-fed", method="POST", authorized=True
+    )
+    LOG.info(
+        "Regional Federal Reserve calendar synchronized: fetched=%s synced=%s",
+        regional_fed_result.get("fetched"),
+        regional_fed_result.get("synced"),
+    )
     return {
         "bls": bls_result,
         "bea": bea_result,
@@ -221,6 +248,9 @@ def synchronize_calendar() -> dict[str, Any]:
         "umich": umich_result,
         "ism": ism_result,
         "conference_board": conference_board_result,
+        "adp": adp_result,
+        "nar": nar_result,
+        "regional_fed": regional_fed_result,
     }
 
 
@@ -300,7 +330,7 @@ def synchronize_schedule_source(source: str) -> dict[str, Any]:
     path = SCHEDULE_SYNC_PATHS[source]
     result = request_json(path, method="POST", authorized=True)
     LOG.info(
-        "%s report link synchronized after release: fetched=%s synced=%s",
+        "%s release refresh synchronized: fetched=%s synced=%s",
         source,
         result.get("fetched"),
         result.get("synced"),
@@ -368,6 +398,9 @@ def refresh_release_watches(
         "umich": "University of Michigan Surveys of Consumers",
         "ism": "Institute for Supply Management",
         "conference_board": "The Conference Board",
+        "adp": "ADP Research",
+        "nar": "National Association of REALTORS",
+        "regional_fed": "Federal Reserve Regional Surveys",
     }
     for source, source_agency in sources.items():
         for event_time in fetch_upcoming_release_times(source_agency):
