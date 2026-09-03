@@ -297,13 +297,19 @@ export async function getEconomicSeriesHistory(options: {
   };
 }
 
-export async function applyObservationsToEconomicEvents() {
+export async function applyObservationsToEconomicEvents(options?: {
+  sourceConnector?: string;
+  historicalValueSource?: string;
+}) {
   const supabase = getSupabaseServer();
+  const sourceConnector = options?.sourceConnector || "bls";
+  const historicalValueSource =
+    options?.historicalValueSource || "BLS Public Data API 2.0";
 
   const { data: seriesData, error: seriesError } = await supabase
     .from("economic_event_series")
     .select("id,series_key")
-    .eq("source_connector", "bls")
+    .eq("source_connector", sourceConnector)
     .eq("is_active", true);
 
   if (seriesError) {
@@ -475,7 +481,7 @@ export async function applyObservationsToEconomicEvents() {
           : "released",
         raw_payload: {
           ...(event.raw_payload || {}),
-          historical_value_source: "BLS Public Data API 2.0",
+          historical_value_source: historicalValueSource,
           historical_value_source_series_id:
             actualObservation.source_series_id,
           historical_value_is_current_official: true,

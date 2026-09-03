@@ -64,6 +64,7 @@ SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 @dataclass
 class ReleaseWatch:
+    source: str
     event_time: datetime
     next_attempt_at: datetime
     attempts: int = 0
@@ -131,15 +132,23 @@ def request_json(
 
 
 def synchronize_calendar() -> dict[str, Any]:
-    result = request_json(
+    bls_result = request_json(
         "/api/economic-events/sync/bls", method="POST", authorized=True
     )
     LOG.info(
         "BLS calendar synchronized: fetched=%s synced=%s",
-        result.get("fetched"),
-        result.get("synced"),
+        bls_result.get("fetched"),
+        bls_result.get("synced"),
     )
-    return result
+    bea_result = request_json(
+        "/api/economic-events/sync/bea", method="POST", authorized=True
+    )
+    LOG.info(
+        "BEA calendar synchronized: fetched=%s synced=%s",
+        bea_result.get("fetched"),
+        bea_result.get("synced"),
+    )
+    return {"bls": bls_result, "bea": bea_result}
 
 
 def synchronize_history(mode: str, force_link: bool = False) -> dict[str, Any]:
@@ -163,7 +172,24 @@ def synchronize_history(mode: str, force_link: bool = False) -> dict[str, Any]:
     return result
 
 
-def fetch_upcoming_bls_release_times() -> list[datetime]:
+def synchronize_bea_history() -> dict[str, Any]:
+    result = request_json(
+        "/api/economic-events/sync/bea/history",
+        method="POST",
+        authorized=True,
+        timeout=240,
+    )
+    LOG.info(
+        "BEA history synchronized: synced=%s inserted=%s revised=%s events=%s",
+        result.get("synced"),
+        result.get("inserted"),
+        result.get("revised"),
+        result.get("calendarEventsUpdated"),
+    )
+    return result
+
+
+def fetch_upcoming_release_times(source_agency: str) -> list[datetime]:
     now = datetime.now(timezone.utc)
     query = urllib.parse.urlencode(
         {
@@ -176,7 +202,7 @@ def fetch_upcoming_bls_release_times() -> list[datetime]:
     payload = request_json(f"/api/economic-events?{query}")
     release_times: set[datetime] = set()
     for event in payload.get("events", []):
-        if event.get("source_agency") != "U.S. Bureau of Labor Statistics":
+        if event.get("source_agency") != source_agency:
             continue
         event_time = event.get("event_time")
         if not event_time:
@@ -215,16 +241,22 @@ def refresh_release_watches(
     watches: dict[str, ReleaseWatch], completed: dict[str, str]
 ) -> None:
     now = datetime.now(timezone.utc)
-    for event_time in fetch_upcoming_bls_release_times():
-        key = event_time.isoformat()
-        if key in completed or key in watches:
-            continue
-        if event_time < now - timedelta(minutes=30):
-            continue
-        watches[key] = ReleaseWatch(
-            event_time=event_time,
-            next_attempt_at=max(now, event_time + timedelta(seconds=30)),
-        )
+    sources = {
+        "bls": "U.S. Bureau of Labor Statistics",
+        "bea": "U.S. Bureau of Economic Analysis",
+    }
+    for source, source_agency in sources.items():
+        for event_time in fetch_upcoming_release_times(source_agency):
+            key = f"{source}:{event_time.isoformat()}"
+            if key in completed or key in watches:
+                continue
+            if event_time < now - timedelta(minutes=30):
+                continue
+            watches[key] = ReleaseWatch(
+                source=source,
+                event_time=event_time,
+                next_attempt_at=max(now, event_time + timedelta(seconds=30)),
+            )
     LOG.info("Watching %s upcoming BLS release times.", len(watches))
 
 
@@ -236,7 +268,11 @@ def process_release_watches(
         if now < watch.next_attempt_at:
             continue
 
-        result = synchronize_history("recent")
+        result = (
+            synchronize_history("recent")
+            if watch.source == "bls"
+            else synchronize_bea_history()
+        )
         changed = int(result.get("inserted") or 0) + int(result.get("revised") or 0)
         watch.attempts += 1
 
@@ -282,10 +318,12 @@ def main() -> None:
 
             if startup_history_pending:
                 synchronize_history("recent", force_link=True)
+                synchronize_bea_history()
                 startup_history_pending = False
 
             if now_monotonic >= next_full_history:
                 synchronize_history("full")
+                synchronize_bea_history()
                 next_full_history = now_monotonic + FULL_HISTORY_SECONDS
 
             if now_monotonic >= next_event_refresh:
