@@ -1,13 +1,22 @@
-import type { EconomicSourceEvent } from "@/types/economic";
+import type {
+  EconomicReleaseStatus,
+  EconomicSourceEvent,
+} from "@/types/economic";
 
 export const TREASURY_RELEASE_CALENDAR_URL =
   "https://api.fiscaldata.treasury.gov/services/calendar/release";
 export const TREASURY_METADATA_URL =
   "https://api.fiscaldata.treasury.gov/services/dtg/metadata/";
+export const TREASURY_AUCTIONS_URL =
+  "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/auctions_query";
 
 const TREASURY_SOURCE_NAME = "U.S. Department of the Treasury";
 const TREASURY_RELEASE_CALENDAR_PAGE =
   "https://fiscaldata.treasury.gov/release-calendar/";
+const TREASURY_AUCTIONS_PAGE =
+  "https://fiscaldata.treasury.gov/datasets/treasury-securities-auctions-data/";
+const TREASURY_AUCTIONS_DATASET_ID = "015-BFS-2014Q3-045";
+const TREASURY_AUCTIONS_SERIES_KEY = "us-treasury-securities-auctions";
 
 type TreasuryRelease = {
   datasetId: string;
@@ -20,6 +29,23 @@ type TreasuryDataset = {
   dataset_id: string;
   title: string;
   dataset_path?: string;
+};
+
+type TreasuryAuctionRow = {
+  record_date?: string;
+  cusip?: string;
+  security_type?: string;
+  security_term?: string;
+  auction_date?: string;
+  announcemt_date?: string;
+  closing_time_comp?: string;
+  closing_time_noncomp?: string;
+  high_yield?: string | null;
+  high_discnt_rate?: string | null;
+  high_investment_rate?: string | null;
+  offering_amt?: string | null;
+  bid_to_cover_ratio?: string | null;
+  [key: string]: unknown;
 };
 
 type TreasurySeriesDefinition = {
@@ -60,8 +86,8 @@ export const TREASURY_SERIES = [
     impactScore: 30,
   },
   {
-    datasetId: "015-BFS-2014Q3-045",
-    seriesKey: "us-treasury-securities-auctions",
+    datasetId: TREASURY_AUCTIONS_DATASET_ID,
+    seriesKey: TREASURY_AUCTIONS_SERIES_KEY,
     title: "Treasury Securities Auctions",
     category: "Financial Markets",
     impactScore: 55,
@@ -111,17 +137,48 @@ function easternTimeToUtc(
   return candidate.toISOString();
 }
 
-function parseTreasuryDate(date: string, time: string): string | null {
-  const dateParts = date.split("-").map(Number);
-  const timeParts = time.split(":").map(Number);
+function parseDate(value: unknown): [number, number, number] | null {
+  if (typeof value !== "string") return null;
+  const parts = value.split("-").map(Number);
   if (
-    dateParts.length !== 3 ||
-    timeParts.length < 2 ||
-    dateParts.some((part) => !Number.isFinite(part)) ||
-    timeParts.some((part) => !Number.isFinite(part))
+    parts.length !== 3 ||
+    parts.some((part) => !Number.isInteger(part) || part <= 0)
   ) {
     return null;
   }
+  return [parts[0], parts[1], parts[2]];
+}
+
+function parseClock(value: unknown): [number, number] | null {
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const meridiem = match[3]?.toUpperCase();
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute > 59) {
+    return null;
+  }
+
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    if (meridiem === "PM" && hour !== 12) hour += 12;
+    if (meridiem === "AM" && hour === 12) hour = 0;
+  } else if (hour > 23) {
+    return null;
+  }
+
+  return [hour, minute];
+}
+
+function parseTreasuryDateTime(
+  date: unknown,
+  time: unknown
+): string | null {
+  const dateParts = parseDate(date);
+  const timeParts = parseClock(time);
+  if (!dateParts || !timeParts) return null;
 
   return easternTimeToUtc(
     dateParts[0],
@@ -132,58 +189,101 @@ function parseTreasuryDate(date: string, time: string): string | null {
   );
 }
 
+function numeric(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function isReleased(value: string | boolean): boolean {
   return value === true || value === "true";
 }
 
-export async function fetchTreasuryCalendarEvents(): Promise<
-  EconomicSourceEvent[]
-> {
-  const [releaseResponse, metadataResponse] = await Promise.all([
-    fetch(TREASURY_RELEASE_CALENDAR_URL, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "EdgeVault-Economic-Calendar/1.0",
-      },
-    }),
-    fetch(TREASURY_METADATA_URL, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "EdgeVault-Economic-Calendar/1.0",
-      },
-    }),
-  ]);
-
-  if (!releaseResponse.ok) {
-    throw new Error(
-      `Treasury release calendar failed with HTTP ${releaseResponse.status}.`
-    );
-  }
-  if (!metadataResponse.ok) {
-    throw new Error(
-      `Treasury metadata failed with HTTP ${metadataResponse.status}.`
-    );
+function auctionMetric(row: TreasuryAuctionRow): {
+  value: number | null;
+  label: string | null;
+} {
+  const securityType = (row.security_type || "").toLowerCase();
+  if (securityType === "bill") {
+    const discountRate = numeric(row.high_discnt_rate);
+    if (discountRate !== null) {
+      return { value: discountRate, label: "High Discount Rate" };
+    }
   }
 
-  const releases = (await releaseResponse.json()) as TreasuryRelease[];
-  const metadata = (await metadataResponse.json()) as TreasuryDataset[];
-  const metadataById = new Map(
-    metadata.map((dataset) => [dataset.dataset_id, dataset])
-  );
-  const definitionsByDatasetId = new Map(
-    TREASURY_SERIES.map((definition) => [definition.datasetId, definition])
-  );
+  const highYield = numeric(row.high_yield);
+  if (highYield !== null) return { value: highYield, label: "High Yield" };
 
+  const investmentRate = numeric(row.high_investment_rate);
+  if (investmentRate !== null) {
+    return { value: investmentRate, label: "High Investment Rate" };
+  }
+
+  const discountRate = numeric(row.high_discnt_rate);
+  if (discountRate !== null) {
+    return { value: discountRate, label: "High Discount Rate" };
+  }
+
+  return { value: null, label: null };
+}
+
+function auctionTitle(row: TreasuryAuctionRow): string {
+  const term = row.security_term?.trim();
+  const type = row.security_type?.trim();
+  if (term && type) return `${term} ${type} Auction`;
+  if (term) return `${term} Treasury Auction`;
+  if (type) return `${type} Auction`;
+  return "Treasury Securities Auction";
+}
+
+function auctionKey(row: TreasuryAuctionRow): string {
+  return `${row.security_type || "unknown"}|${row.security_term || "unknown"}`.toLowerCase();
+}
+
+async function fetchJson<T>(url: URL): Promise<T> {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "EdgeVault-Economic-Calendar/1.0",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Treasury API failed with HTTP ${response.status}.`);
+  }
+  return (await response.json()) as T;
+}
+
+async function fetchTreasuryAuctionRows(): Promise<TreasuryAuctionRow[]> {
+  const startYear = new Date().getUTCFullYear() - 5;
+  const url = new URL(TREASURY_AUCTIONS_URL);
+  url.searchParams.set("filter", `record_date:gte:${startYear}-01-01`);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("page[size]", "10000");
+  url.searchParams.set("sort", "record_date");
+
+  const payload = await fetchJson<{ data?: TreasuryAuctionRow[] }>(url);
+  if (!Array.isArray(payload.data)) {
+    throw new Error("Treasury auction API returned an invalid data array.");
+  }
+  return payload.data;
+}
+
+function buildGenericReleaseEvents(
+  releases: TreasuryRelease[],
+  metadataById: Map<string, TreasuryDataset>,
+  definitionsByDatasetId: Map<string, TreasurySeriesDefinition>
+): EconomicSourceEvent[] {
   const events: EconomicSourceEvent[] = [];
   const seen = new Set<string>();
 
   for (const release of releases) {
+    if (release.datasetId === TREASURY_AUCTIONS_DATASET_ID) continue;
+
     const definition = definitionsByDatasetId.get(release.datasetId);
     if (!definition) continue;
 
-    const eventTime = parseTreasuryDate(release.date, release.time);
+    const eventTime = parseTreasuryDateTime(release.date, release.time);
     if (!eventTime) continue;
 
     const sourceEventId = `treasury:${release.datasetId}:${release.date}:${release.time}`;
@@ -194,6 +294,7 @@ export async function fetchTreasuryCalendarEvents(): Promise<
     const sourceUrl = dataset?.dataset_path
       ? `https://fiscaldata.treasury.gov/datasets/${dataset.dataset_path}/`
       : TREASURY_RELEASE_CALENDAR_PAGE;
+    const released = isReleased(release.released);
 
     events.push({
       externalId: sourceEventId,
@@ -208,12 +309,12 @@ export async function fetchTreasuryCalendarEvents(): Promise<
       sourceAgency: TREASURY_SOURCE_NAME,
       sourceUrl,
       sourceEventId,
-      sourcePublishedAt: isReleased(release.released) ? eventTime : null,
-      releaseStatus: isReleased(release.released) ? "released" : "scheduled",
+      sourcePublishedAt: released ? eventTime : null,
+      releaseStatus: released ? "released" : "scheduled",
       rawPayload: {
         release_calendar_url: TREASURY_RELEASE_CALENDAR_URL,
         dataset_id: release.datasetId,
-        dataset_title: dataset?.title || definition.title,
+        dataset_title: metadataById.get(release.datasetId)?.title || definition.title,
         release_date: release.date,
         release_time: release.time,
         released: release.released,
@@ -221,8 +322,131 @@ export async function fetchTreasuryCalendarEvents(): Promise<
     });
   }
 
+  return events;
+}
+
+function buildAuctionEvents(rows: TreasuryAuctionRow[]): EconomicSourceEvent[] {
+  const sortedRows = [...rows].sort((left, right) => {
+    const leftDate = `${left.auction_date || ""}|${left.record_date || ""}`;
+    const rightDate = `${right.auction_date || ""}|${right.record_date || ""}`;
+    return leftDate.localeCompare(rightDate);
+  });
+  const previousByAuctionKey = new Map<string, number>();
+  const events: EconomicSourceEvent[] = [];
+  const seen = new Set<string>();
+
+  for (const row of sortedRows) {
+    const eventTime = parseTreasuryDateTime(
+      row.auction_date,
+      row.closing_time_comp || row.closing_time_noncomp
+    );
+    if (!eventTime) continue;
+
+    const identity =
+      row.cusip ||
+      `${row.security_type || "unknown"}:${row.security_term || "unknown"}:${row.auction_date || "unknown"}:${row.record_date || "unknown"}`;
+    const sourceEventId = `treasury-auction:${identity}`;
+    if (seen.has(sourceEventId)) continue;
+    seen.add(sourceEventId);
+
+    const metric = auctionMetric(row);
+    const previous = previousByAuctionKey.get(auctionKey(row)) ?? null;
+    const recordDate = parseDate(row.record_date);
+    const today = new Date();
+    const todayUtc = Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate()
+    );
+    const recordDateUtc = recordDate
+      ? Date.UTC(recordDate[0], recordDate[1] - 1, recordDate[2])
+      : Number.POSITIVE_INFINITY;
+    const released = Boolean(
+      metric.value !== null || recordDateUtc < todayUtc
+    );
+    const releaseStatus: EconomicReleaseStatus = released
+      ? "released"
+      : "scheduled";
+
+    events.push({
+      externalId: sourceEventId,
+      seriesKey: TREASURY_AUCTIONS_SERIES_KEY,
+      title: auctionTitle(row),
+      country: "United States",
+      currency: "USD",
+      eventTime,
+      eventKind: "data",
+      category: "Financial Markets",
+      referencePeriod: row.auction_date
+        ? `Auction date ${row.auction_date}`
+        : null,
+      sourceAgency: TREASURY_SOURCE_NAME,
+      sourceUrl: TREASURY_AUCTIONS_PAGE,
+      sourceEventId,
+      sourcePublishedAt:
+        released && row.record_date
+          ? `${row.record_date}T00:00:00.000Z`
+          : null,
+      forecast: null,
+      previous,
+      actual: released ? metric.value : null,
+      unit: metric.value !== null ? "%" : null,
+      releaseStatus,
+      rawPayload: {
+        treasury_auction_url: TREASURY_AUCTIONS_URL,
+        record_date: row.record_date ?? null,
+        cusip: row.cusip ?? null,
+        security_type: row.security_type ?? null,
+        security_term: row.security_term ?? null,
+        auction_date: row.auction_date ?? null,
+        announcement_date: row.announcemt_date ?? null,
+        closing_time_competitive: row.closing_time_comp ?? null,
+        closing_time_noncompetitive: row.closing_time_noncomp ?? null,
+        result_metric: metric.label,
+        high_yield: row.high_yield ?? null,
+        high_discount_rate: row.high_discnt_rate ?? null,
+        high_investment_rate: row.high_investment_rate ?? null,
+        offering_amount: row.offering_amt ?? null,
+        bid_to_cover_ratio: row.bid_to_cover_ratio ?? null,
+        official_record: row,
+      },
+    });
+
+    if (released && metric.value !== null) {
+      previousByAuctionKey.set(auctionKey(row), metric.value);
+    }
+  }
+
+  return events;
+}
+
+export async function fetchTreasuryCalendarEvents(): Promise<
+  EconomicSourceEvent[]
+> {
+  const [releases, metadata, auctionRows] = await Promise.all([
+    fetchJson<TreasuryRelease[]>(new URL(TREASURY_RELEASE_CALENDAR_URL)),
+    fetchJson<TreasuryDataset[]>(new URL(TREASURY_METADATA_URL)),
+    fetchTreasuryAuctionRows(),
+  ]);
+
+  const metadataById = new Map(
+    metadata.map((dataset) => [dataset.dataset_id, dataset])
+  );
+  const definitionsByDatasetId = new Map(
+    TREASURY_SERIES.map((definition) => [definition.datasetId, definition])
+  );
+
+  const events = [
+    ...buildGenericReleaseEvents(
+      releases,
+      metadataById,
+      definitionsByDatasetId
+    ),
+    ...buildAuctionEvents(auctionRows),
+  ];
+
   if (events.length === 0) {
-    throw new Error("The Treasury release calendar returned no supported events.");
+    throw new Error("The Treasury APIs returned no supported events.");
   }
 
   return events.sort(

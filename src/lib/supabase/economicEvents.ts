@@ -106,10 +106,12 @@ export async function upsertOfficialEconomicEvents(
       currency: sourceEvent.currency,
       impact: impactFromScore(expectedImpactScore),
       event_time: sourceEvent.eventTime,
-      forecast: null,
-      previous: existing?.previous ?? null,
-      actual: isReleased ? existing?.actual ?? null : null,
-      unit: series.unit,
+      forecast: sourceEvent.forecast ?? existing?.forecast ?? null,
+      previous: sourceEvent.previous ?? existing?.previous ?? null,
+      actual: isReleased
+        ? sourceEvent.actual ?? existing?.actual ?? null
+        : null,
+      unit: sourceEvent.unit ?? series.unit,
       source: series.official_source_name,
       event_kind: sourceEvent.eventKind,
       category: sourceEvent.category,

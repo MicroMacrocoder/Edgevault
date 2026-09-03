@@ -82,6 +82,10 @@ export type EconomicSourceEvent = {
   sourceUrl: string;
   sourceEventId: string;
   sourcePublishedAt: string | null;
+  forecast?: number | null;
+  previous?: number | null;
+  actual?: number | null;
+  unit?: string | null;
   releaseStatus?: EconomicReleaseStatus;
   rawPayload: Record<string, unknown>;
 };
