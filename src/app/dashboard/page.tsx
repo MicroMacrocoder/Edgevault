@@ -1879,6 +1879,8 @@ export default function DashboardPage() {
     useState<TechnicalsTab>("hub");
   const [selectedReportsView, setSelectedReportsView] =
     useState<ReportsWorkspaceView>("hub");
+  const [selectedReportsSpeechEventId, setSelectedReportsSpeechEventId] =
+    useState<string | null>(null);
   const [
     selectedReportsMarketIntelligenceSymbol,
     setSelectedReportsMarketIntelligenceSymbol,
@@ -1886,6 +1888,18 @@ export default function DashboardPage() {
 
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [currentUserEmail, setCurrentUserEmail] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (
+      params.get("section") === "reports" &&
+      params.get("reportsView") === "speech-archive"
+    ) {
+      setSelectedSection("reports");
+      setSelectedReportsView("speech-archive");
+      setSelectedReportsSpeechEventId(params.get("speechId"));
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -1959,6 +1973,7 @@ export default function DashboardPage() {
   function handleSidebarSectionSelect(section: DashboardSection) {
     if (section === "reports") {
       setSelectedReportsView("hub");
+      setSelectedReportsSpeechEventId(null);
     }
 
     setSelectedSection(section);
@@ -2139,6 +2154,7 @@ export default function DashboardPage() {
             ) : selectedSection === "reports" ? (
               <ReportsWorkspace
                 initialView={selectedReportsView}
+                initialSpeechEventId={selectedReportsSpeechEventId}
                 initialMarketIntelligenceSymbol={
                   selectedReportsMarketIntelligenceSymbol
                 }

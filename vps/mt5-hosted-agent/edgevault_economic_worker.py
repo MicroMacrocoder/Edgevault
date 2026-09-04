@@ -164,6 +164,18 @@ def synchronize_calendar() -> dict[str, Any]:
         fed_result.get("fetched"),
         fed_result.get("synced"),
     )
+    fed_transcript_result = request_json(
+        "/api/economic-events/sync/fed/transcripts?months=12&limit=100",
+        method="POST",
+        authorized=True,
+        timeout=240,
+    )
+    LOG.info(
+        "Federal Reserve transcripts synchronized: checked=%s published=%s synced=%s",
+        fed_transcript_result.get("checked"),
+        fed_transcript_result.get("published"),
+        fed_transcript_result.get("synced"),
+    )
     census_result = request_json(
         "/api/economic-events/sync/census", method="POST", authorized=True
     )
@@ -242,6 +254,7 @@ def synchronize_calendar() -> dict[str, Any]:
         "bls": bls_result,
         "bea": bea_result,
         "fed": fed_result,
+        "fed_transcripts": fed_transcript_result,
         "census": census_result,
         "dol": dol_result,
         "treasury": treasury_result,

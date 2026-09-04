@@ -73,6 +73,13 @@ type HistoryState = {
   observations: EconomicObservation[];
 };
 
+type SpeechReportState = {
+  loading: boolean;
+  error: string | null;
+  summary: string | null;
+  available: boolean;
+};
+
 const IMPACTS: Array<"All" | EconomicImpact> = ["All", "High", "Medium", "Low"];
 
 function startOfDay(date: Date): Date {
@@ -298,6 +305,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [histories, setHistories] = useState<Record<string, HistoryState>>({});
+  const [speechReports, setSpeechReports] = useState<Record<string, SpeechReportState>>({});
 
   const range = useMemo(() => {
     const from = compact ? startOfDay(new Date()) : startOfWeek(anchorDate);
@@ -427,10 +435,74 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
     [histories]
   );
 
+  const loadSpeechReport = useCallback(
+    async (event: EconomicEventRow) => {
+      if (event.event_kind !== "speech" || speechReports[event.id]) return;
+
+      setSpeechReports((current) => ({
+        ...current,
+        [event.id]: { loading: true, error: null, summary: null, available: false },
+      }));
+
+      try {
+        const response = await fetch(
+          `/api/economic-speeches?currency=${encodeURIComponent(
+            event.currency || "USD",
+          )}&eventId=${encodeURIComponent(event.id)}`,
+          { cache: "no-store" },
+        );
+        const payload = (await response.json()) as {
+          speeches?: Array<{
+            reportSummary?: string | null;
+            transcript?: {
+              transcript_status?: string;
+              transcript_text?: string | null;
+            } | null;
+          }>;
+          message?: string;
+        };
+        if (!response.ok) {
+          throw new Error(payload.message || "EdgeVault speech report could not be loaded.");
+        }
+
+        const report = payload.speeches?.[0];
+        const available =
+          report?.transcript?.transcript_status === "published" &&
+          Boolean(report.transcript.transcript_text);
+        setSpeechReports((current) => ({
+          ...current,
+          [event.id]: {
+            loading: false,
+            error: null,
+            summary: report?.reportSummary || null,
+            available,
+          },
+        }));
+      } catch (caught) {
+        setSpeechReports((current) => ({
+          ...current,
+          [event.id]: {
+            loading: false,
+            error:
+              caught instanceof Error
+                ? caught.message
+                : "EdgeVault speech report could not be loaded.",
+            summary: null,
+            available: false,
+          },
+        }));
+      }
+    },
+    [speechReports],
+  );
+
   const toggleEvent = (event: EconomicEventRow) => {
     const nextId = expandedEventId === event.id ? null : event.id;
     setExpandedEventId(nextId);
-    if (nextId) void loadHistory(event);
+    if (nextId) {
+      void loadHistory(event);
+      void loadSpeechReport(event);
+    }
   };
 
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -593,6 +665,9 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
                 {dayEvents.map((event) => {
                   const expanded = expandedEventId === event.id;
                   const history = event.series_id ? histories[event.series_id] : undefined;
+                  const speechReport = speechReports[event.id];
+                  const edgeVaultReportUrl =
+                    `/dashboard?section=reports&reportsView=speech-archive&speechId=${encodeURIComponent(event.id)}`;
 
                   return (
                     <div key={event.id} className="border-b border-gray-800/80 last:border-0">
@@ -700,6 +775,39 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
                               )}
                             </div>
                           </div>
+
+                          {event.event_kind === "speech" ? (
+                            <div className="mb-4 border-t border-gray-800 pt-4">
+                              <p className="text-[10px] uppercase tracking-wider text-gray-600">
+                                EdgeVault report
+                              </p>
+                              {speechReport?.loading ? (
+                                <p className="mt-1 text-xs text-gray-500">
+                                  Checking whether the official speech report is available...
+                                </p>
+                              ) : speechReport?.error ? (
+                                <p className="mt-1 text-xs text-red-300">{speechReport.error}</p>
+                              ) : speechReport?.available ? (
+                                <>
+                                  <p className="mt-1 max-w-4xl text-xs leading-relaxed text-gray-300">
+                                    {speechReport.summary ||
+                                      "The official transcript is archived in EdgeVault."}
+                                  </p>
+                                  <a
+                                    href={edgeVaultReportUrl}
+                                    className="mt-2 inline-flex items-center gap-1 font-mono text-xs font-bold text-yellow-300 transition hover:text-yellow-200"
+                                  >
+                                    Open full EdgeVault report
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                </>
+                              ) : (
+                                <p className="mt-1 text-xs text-gray-500">
+                                  The EdgeVault report will appear after the official transcript is published.
+                                </p>
+                              )}
+                            </div>
+                          ) : null}
 
                           {event.ranking_reason ? (
                             <p className="mb-4 rounded-md border border-gray-800 bg-white/[0.02] px-3 py-2 text-xs leading-relaxed text-gray-400">

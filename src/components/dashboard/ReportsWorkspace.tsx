@@ -4,17 +4,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowLeft,
+  BookOpen,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Download,
+  ExternalLink,
   FileText,
   Info,
   Landmark,
+  Radio,
   RefreshCw,
   ScrollText,
   UserRound,
 } from "lucide-react";
+import type { EconomicEventRow } from "@/types/economic";
 
 const MARKET_INTELLIGENCE_SYMBOLS = [
   "DXY",
@@ -32,6 +36,7 @@ export type ReportsMarketIntelligenceSymbol =
 
 export type ReportsWorkspaceView =
   | "hub"
+  | "speech-archive"
   | "market-intelligence";
 
 type MarketTrend =
@@ -104,6 +109,29 @@ type HistoryResponse = {
 type ReportsWorkspaceProps = {
   initialView?: ReportsWorkspaceView;
   initialMarketIntelligenceSymbol?: ReportsMarketIntelligenceSymbol;
+  initialSpeechEventId?: string | null;
+};
+
+type SpeechArchiveEvent = Pick<
+  EconomicEventRow,
+  | "id"
+  | "title"
+  | "event_time"
+  | "source_url"
+  | "release_status"
+  | "raw_payload"
+  | "reference_period"
+>;
+
+type SpeechArchiveRecord = {
+  event: SpeechArchiveEvent;
+  transcript: {
+    transcript_status: "published" | "unavailable";
+    transcript_text: string | null;
+    source_url: string;
+    live_url: string | null;
+  } | null;
+  reportSummary?: string | null;
 };
 
 type ReportModuleCardProps = {
@@ -370,9 +398,251 @@ function parseAnalysisSections(
   return sections;
 }
 
+function formatSpeechDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function SpeechArchiveView({
+  onBack,
+  initialSpeechEventId,
+}: {
+  onBack: () => void;
+  initialSpeechEventId?: string | null;
+}) {
+  const [speeches, setSpeeches] = useState<SpeechArchiveRecord[]>([]);
+  const [expandedTranscriptId, setExpandedTranscriptId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadSpeeches = useCallback(async (signal?: AbortSignal) => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/economic-speeches?currency=USD", {
+        cache: "no-store",
+        signal,
+      });
+      const payload = (await response.json()) as {
+        speeches?: SpeechArchiveRecord[];
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.message || "Speech archive could not be loaded.");
+      }
+
+      setSpeeches(payload.speeches || []);
+    } catch (caught) {
+      if (caught instanceof Error && caught.name === "AbortError") return;
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Speech archive could not be loaded.",
+      );
+    } finally {
+      if (!signal?.aborted) setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadSpeeches(controller.signal);
+    return () => controller.abort();
+  }, [loadSpeeches]);
+
+  const archivedSpeeches = speeches.filter(({ event, transcript }) =>
+    event.release_status !== "scheduled" &&
+    transcript?.transcript_status === "published" &&
+    Boolean(transcript.transcript_text),
+  );
+
+  useEffect(() => {
+    if (
+      initialSpeechEventId &&
+      archivedSpeeches.some(({ event }) => event.id === initialSpeechEventId)
+    ) {
+      setExpandedTranscriptId(initialSpeechEventId);
+    }
+  }, [archivedSpeeches, initialSpeechEventId]);
+
+  return (
+    <div className="space-y-5">
+      <div className="border border-gray-800 bg-[#111111] p-5">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-2 font-mono text-xs font-bold text-gray-400 transition hover:text-cyan-300"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Reports Hub
+        </button>
+
+        <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">
+              DXY / USD policy archive
+            </p>
+            <h1 className="mt-2 font-mono text-2xl font-black text-white sm:text-3xl">
+              Fed Speeches & Transcripts
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-gray-400">
+              Official Federal Reserve Board speeches are archived here. The official speech page is authoritative; any future live transcript will remain a separate provisional record.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void loadSpeeches()}
+            className="inline-flex h-9 shrink-0 items-center gap-2 border border-gray-800 bg-black px-3 font-mono text-xs font-bold text-gray-300 transition hover:border-cyan-400 hover:text-cyan-300"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex min-h-48 items-center justify-center border border-gray-800 bg-[#111111] font-mono text-sm text-gray-500">
+          Loading official speech archive...
+        </div>
+      ) : error ? (
+        <div className="border border-red-500/30 bg-red-500/10 p-5 text-sm text-red-300">
+          {error}
+        </div>
+      ) : archivedSpeeches.length === 0 ? (
+        <div className="border border-gray-800 bg-[#111111] p-8 text-center text-sm text-gray-500">
+          No completed Fed speeches with official transcripts are available yet.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+            <p className="font-mono text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
+              {archivedSpeeches.length} archived speech records
+            </p>
+            <p className="font-mono text-[10px] text-gray-600">2021–present</p>
+          </div>
+
+          {archivedSpeeches.map(({ event, transcript, reportSummary }) => {
+            const liveUrl =
+              transcript?.live_url ||
+              event.raw_payload?.watch_live_url ||
+              (event.title === "FOMC Press Conference"
+                ? "https://www.federalreserve.gov/monetarypolicy/fomc.htm"
+                : null);
+            const officialUrl = event.source_url || transcript?.source_url;
+            const hasTranscript =
+              transcript?.transcript_status === "published" &&
+              Boolean(transcript.transcript_text);
+            const hasLiveUrl =
+              event.release_status === "scheduled" &&
+              !hasTranscript &&
+              typeof liveUrl === "string" &&
+              liveUrl.length > 0;
+            const isTranscriptExpanded = expandedTranscriptId === event.id;
+
+            return (
+              <article
+                key={event.id}
+                className="border border-gray-800 bg-[#111111] p-4 transition hover:border-cyan-400/40"
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-300">
+                        Speech
+                      </span>
+                      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-gray-600">
+                        {formatSpeechDate(event.event_time)}
+                      </span>
+                    </div>
+                    <h2 className="mt-3 text-sm font-semibold leading-relaxed text-white sm:text-base">
+                      {event.title}
+                    </h2>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {event.reference_period || "Board of Governors official release"}
+                    </p>
+                    {reportSummary ? (
+                      <p className="mt-3 max-w-3xl text-xs leading-relaxed text-gray-400">
+                        <span className="font-semibold text-gray-300">EdgeVault summary: </span>
+                        {reportSummary}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {hasLiveUrl ? (
+                      <a
+                        href={liveUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 border border-red-500/40 bg-red-500/10 px-3 py-2 font-mono text-xs font-bold text-red-300 transition hover:border-red-300 hover:text-red-200"
+                      >
+                        <Radio className="h-3.5 w-3.5" />
+                        Watch Live
+                      </a>
+                    ) : null}
+                    {officialUrl ? (
+                      <a
+                        href={officialUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 font-mono text-xs font-bold text-cyan-300 transition hover:border-cyan-300 hover:text-cyan-200"
+                      >
+                        <BookOpen className="h-3.5 w-3.5" />
+                        Official Speech
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t border-gray-800 pt-3">
+                  {hasTranscript ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedTranscriptId(
+                            isTranscriptExpanded ? null : event.id,
+                          )
+                        }
+                        className="inline-flex items-center gap-2 font-mono text-xs font-bold text-yellow-300 transition hover:text-yellow-200"
+                      >
+                        <BookOpen className="h-3.5 w-3.5" />
+                        {isTranscriptExpanded ? "Hide Official Transcript" : "Read Official Transcript"}
+                      </button>
+                      {isTranscriptExpanded ? (
+                        <div className="mt-4 max-h-[520px] overflow-y-auto whitespace-pre-wrap border border-gray-800 bg-black/40 p-4 text-sm leading-7 text-gray-300">
+                          {transcript.transcript_text}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-gray-600">
+                      Official transcript pending publication or unavailable
+                    </p>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReportsWorkspace({
   initialView = "hub",
   initialMarketIntelligenceSymbol = "EUR",
+  initialSpeechEventId = null,
 }: ReportsWorkspaceProps) {
   const [view, setView] =
     useState<ReportsWorkspaceView>(initialView);
@@ -716,9 +986,10 @@ export default function ReportsWorkspace({
           <ReportModuleCard
             eyebrow="Economic drivers"
             title="Speeches & Economic Transcripts"
-            description="Central-bank speeches, FOMC communication and other medium- to high-impact policy transcripts, with future EdgeVault summaries."
-            status="coming-soon"
+            description="Official Federal Reserve speeches with one-click live links where supplied and a separate archive path for official transcripts and future live transcripts."
+            status="live"
             icon={<ScrollText className="h-5 w-5" />}
+            onOpen={() => setView("speech-archive")}
           />
 
           <ReportModuleCard
@@ -738,6 +1009,15 @@ export default function ReportsWorkspace({
           />
         </div>
       </div>
+    );
+  }
+
+  if (view === "speech-archive") {
+    return (
+      <SpeechArchiveView
+        onBack={() => setView("hub")}
+        initialSpeechEventId={initialSpeechEventId}
+      />
     );
   }
 
