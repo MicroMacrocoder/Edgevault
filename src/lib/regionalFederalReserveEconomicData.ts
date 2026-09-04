@@ -1,4 +1,5 @@
 import type { EconomicSourceEvent } from "@/types/economic";
+import { fetchAdditionalRegionalFederalReserveCalendarEvents } from "@/lib/additionalRegionalFederalReserveEconomicData";
 
 export const REGIONAL_FED_SOURCE_NAME = "Federal Reserve Regional Surveys";
 export const NY_EMPIRE_URL =
@@ -216,5 +217,10 @@ export async function fetchRegionalFederalReserveCalendarEvents(): Promise<Econo
   const nextPhillyPeriod = new Date(Date.UTC(philly.period.getUTCFullYear(), philly.period.getUTCMonth() + 1, 1));
   const nextPhillyRelease = thirdThursday(nextPhillyPeriod.getUTCFullYear(), nextPhillyPeriod.getUTCMonth() + 1);
   if (nextPhillyRelease.getTime() > now.getTime()) events.push(event("us-philadelphia-fed-manufacturing", "Philadelphia Fed Manufacturing Index", nextPhillyPeriod, nextPhillyRelease, PHILLY_MBOS_URL, null, philly.actual, "scheduled", { schedule_source_url: PHILLY_MBOS_URL, values_available_after_release: true, report_link_note: "The official report page and CSV are refreshed after release." }));
-  return events.sort((left, right) => new Date(left.eventTime).getTime() - new Date(right.eventTime).getTime());
+  const additionalEvents =
+    await fetchAdditionalRegionalFederalReserveCalendarEvents();
+  return [...events, ...additionalEvents].sort(
+    (left, right) =>
+      new Date(left.eventTime).getTime() - new Date(right.eventTime).getTime()
+  );
 }

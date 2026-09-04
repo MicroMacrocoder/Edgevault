@@ -100,6 +100,130 @@ values
     'General business activity diffusion index from the Philadelphia Fed Manufacturing Business Outlook Survey.',
     true,
     jsonb_build_object('value_column', 'GAC')
+  ),
+  (
+    'us-dallas-fed-manufacturing',
+    'Dallas Fed Manufacturing Activity Index',
+    'United States',
+    'USD',
+    'Business Survey',
+    'data',
+    'Monthly',
+    'Index',
+    'Federal Reserve Regional Surveys',
+    'https://www.dallasfed.org/research/surveys/tmos',
+    'regional-fed',
+    45,
+    'Production balance index from the Dallas Fed Texas Manufacturing Outlook Survey.',
+    true,
+    jsonb_build_object(
+      'survey_url', 'https://www.dallasfed.org/research/surveys/tmos',
+      'values_source', 'Official Dallas Fed report results table'
+    )
+  ),
+  (
+    'us-dallas-fed-services',
+    'Dallas Fed Services Revenue Index',
+    'United States',
+    'USD',
+    'Business Survey',
+    'data',
+    'Monthly',
+    'Index',
+    'Federal Reserve Regional Surveys',
+    'https://www.dallasfed.org/research/surveys/tssos',
+    'regional-fed',
+    40,
+    'Revenue balance index from the Dallas Fed Texas Service Sector Outlook Survey.',
+    true,
+    jsonb_build_object(
+      'survey_url', 'https://www.dallasfed.org/research/surveys/tssos',
+      'values_source', 'Official Dallas Fed report results table'
+    )
+  ),
+  (
+    'us-richmond-fed-manufacturing',
+    'Richmond Fed Manufacturing Index',
+    'United States',
+    'USD',
+    'Business Survey',
+    'data',
+    'Monthly',
+    'Index',
+    'Federal Reserve Regional Surveys',
+    'https://www.richmondfed.org/region_communities/regional_data_analysis/business_surveys/manufacturing',
+    'regional-fed',
+    45,
+    'Composite manufacturing index from the Federal Reserve Bank of Richmond survey.',
+    true,
+    jsonb_build_object(
+      'survey_url', 'https://www.richmondfed.org/region_communities/regional_data_analysis/business_surveys/manufacturing',
+      'schedule_url', 'https://www.richmondfed.org/region_communities/regional_data_analysis/business_surveys/manufacturing/release_schedule',
+      'values_source', 'Official Richmond Fed release headline'
+    )
+  ),
+  (
+    'us-kansas-city-fed-manufacturing',
+    'Kansas City Fed Manufacturing Index',
+    'United States',
+    'USD',
+    'Business Survey',
+    'data',
+    'Monthly',
+    'Index',
+    'Federal Reserve Regional Surveys',
+    'https://www.kansascityfed.org/surveys/manufacturing-survey/',
+    'regional-fed',
+    45,
+    'Composite manufacturing index from the Federal Reserve Bank of Kansas City survey.',
+    true,
+    jsonb_build_object(
+      'survey_url', 'https://www.kansascityfed.org/surveys/manufacturing-survey/',
+      'schedule_url', 'https://www.kansascityfed.org/surveys/manufacturing-survey/manufacturing-survey-release-dates/',
+      'values_source', 'Official Kansas City Fed historical monthly workbook'
+    )
+  ),
+  (
+    'us-sp-global-manufacturing-pmi',
+    'S&P Global Manufacturing PMI',
+    'United States',
+    'USD',
+    'Business Survey',
+    'data',
+    'Monthly',
+    'Index',
+    'S&P Global',
+    'https://www.pmi.spglobal.com/Public/Release/ReleaseDates',
+    'regional-fed',
+    50,
+    'U.S. manufacturing PMI release from S&P Global; official public value retrieval is not available to this connector.',
+    true,
+    jsonb_build_object(
+      'release_schedule_url', 'https://www.pmi.spglobal.com/Public/Release/ReleaseDates',
+      'values_not_synced', true,
+      'link_only', true
+    )
+  ),
+  (
+    'us-chicago-business-barometer',
+    'Chicago PMI (Business Barometer)',
+    'United States',
+    'USD',
+    'Business Survey',
+    'data',
+    'Monthly',
+    'Index',
+    'ISM Chicago / MNI Indicators',
+    'https://chicago.ismworld.org/news-publications/reports/research-survey/',
+    'regional-fed',
+    45,
+    'Chicago Business Barometer release; official public value retrieval is not available to this connector.',
+    true,
+    jsonb_build_object(
+      'release_schedule_url', 'https://chicago.ismworld.org/news-publications/reports/research-survey/',
+      'values_not_synced', true,
+      'link_only', true
+    )
   )
 on conflict (series_key) do update set
   name = excluded.name,
