@@ -78,9 +78,16 @@ type SpeechReportState = {
   error: string | null;
   summary: string | null;
   available: boolean;
+  officialUrl: string | null;
 };
 
 const IMPACTS: Array<"All" | EconomicImpact> = ["All", "High", "Medium", "Low"];
+const CALENDAR_CURRENCIES = ["ALL", "USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"] as const;
+type CalendarCurrency = (typeof CALENDAR_CURRENCIES)[number];
+
+function currencyLabel(currency: CalendarCurrency): string {
+  return currency === "ALL" ? "All Currencies" : currency;
+}
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -301,6 +308,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [currencyFilter, setCurrencyFilter] = useState<CalendarCurrency>("USD");
   const [impactFilter, setImpactFilter] = useState<"All" | EconomicImpact>("All");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
@@ -323,7 +331,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
 
       try {
         const params = new URLSearchParams({
-          currency: "USD",
+          currency: currencyFilter,
           from: fromIso,
           to: toIso,
           limit: "500",
@@ -348,7 +356,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
         setRefreshing(false);
       }
     },
-    [fromIso, toIso]
+    [currencyFilter, fromIso, toIso]
   );
 
   useEffect(() => {
@@ -441,7 +449,13 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
 
       setSpeechReports((current) => ({
         ...current,
-        [event.id]: { loading: true, error: null, summary: null, available: false },
+        [event.id]: {
+          loading: true,
+          error: null,
+          summary: null,
+          available: false,
+          officialUrl: event.source_url || null,
+        },
       }));
 
       try {
@@ -457,6 +471,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
             transcript?: {
               transcript_status?: string;
               transcript_text?: string | null;
+              source_url?: string | null;
             } | null;
           }>;
           message?: string;
@@ -476,6 +491,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
             error: null,
             summary: report?.reportSummary || null,
             available,
+            officialUrl: report?.transcript?.source_url || event.source_url || null,
           },
         }));
       } catch (caught) {
@@ -489,6 +505,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
                 : "EdgeVault speech report could not be loaded.",
             summary: null,
             available: false,
+            officialUrl: event.source_url || null,
           },
         }));
       }
@@ -517,18 +534,18 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
             </div>
             <div>
               <h2 className="font-mono text-sm font-bold text-white">
-                EdgeVault Official USD Calendar
+                EdgeVault Official {currencyLabel(currencyFilter)} Calendar
               </h2>
               <p className="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
                 Official-source release schedules, actual values, revisions and historical
-                trends. Consensus is intentionally excluded.
+                trends for {currencyLabel(currencyFilter)}. Consensus is intentionally excluded.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 text-xs text-emerald-400">
             <ShieldCheck className="h-4 w-4" />
-            <span className="font-mono">Official BLS feed active</span>
+            <span className="font-mono">Official-source feeds active</span>
           </div>
         </div>
       ) : null}
@@ -571,6 +588,22 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
           <div className="flex flex-wrap items-center gap-2">
             {!compact ? (
               <>
+                <select
+                  value={currencyFilter}
+                  onChange={(event) => {
+                    setCurrencyFilter(event.target.value as CalendarCurrency);
+                    setCategoryFilter("All");
+                    setExpandedEventId(null);
+                  }}
+                  className="rounded-md border border-cyan-500/40 bg-black px-3 py-2 font-mono text-xs font-bold text-cyan-200 outline-none focus:border-cyan-400"
+                  aria-label="Calendar currency"
+                >
+                  {CALENDAR_CURRENCIES.map((currency) => (
+                    <option key={currency} value={currency}>
+                      {currency === "ALL" ? "All currencies" : `${currency} calendar`}
+                    </option>
+                  ))}
+                </select>
                 <select
                   value={impactFilter}
                   onChange={(event) =>
@@ -637,7 +670,9 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
         ) : groupedEvents.length === 0 ? (
           <div className="flex min-h-56 flex-col items-center justify-center p-6 text-center">
             <CalendarDays className="mb-3 h-6 w-6 text-gray-600" />
-            <p className="text-sm text-gray-300">No matching USD events in this period.</p>
+            <p className="text-sm text-gray-300">
+              No matching {currencyLabel(currencyFilter)} events in this period.
+            </p>
             <p className="mt-1 text-xs text-gray-500">
               Change the filters or move to another week.
             </p>
@@ -802,9 +837,22 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
                                   </a>
                                 </>
                               ) : (
-                                <p className="mt-1 text-xs text-gray-500">
-                                  The EdgeVault report will appear after the official transcript is published.
-                                </p>
+                                <>
+                                  <p className="mt-1 text-xs text-gray-500">
+                                    The EdgeVault report will appear after the official transcript is published.
+                                  </p>
+                                  {speechReport.officialUrl ? (
+                                    <a
+                                      href={speechReport.officialUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="mt-2 inline-flex items-center gap-1 font-mono text-xs font-bold text-cyan-300 transition hover:text-cyan-200"
+                                    >
+                                      Open direct official release
+                                      <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                  ) : null}
+                                </>
                               )}
                             </div>
                           ) : null}
@@ -828,7 +876,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
         )}
 
         <div className="flex flex-col gap-1 border-t border-gray-800 bg-black px-4 py-2 text-center text-[10px] text-gray-600 sm:flex-row sm:items-center sm:justify-between sm:text-left">
-          <span>Source: U.S. Bureau of Labor Statistics</span>
+          <span>Official sources for {currencyLabel(currencyFilter)} releases</span>
           <span>No paid consensus data · Actual and previous are official values</span>
         </div>
       </div>

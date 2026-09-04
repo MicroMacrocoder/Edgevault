@@ -37,6 +37,7 @@ export type ReportsMarketIntelligenceSymbol =
 export type ReportsWorkspaceView =
   | "hub"
   | "speech-archive"
+  | "data-access"
   | "market-intelligence";
 
 type MarketTrend =
@@ -133,6 +134,11 @@ type SpeechArchiveRecord = {
   } | null;
   reportSummary?: string | null;
 };
+
+type OfficialDataEvent = Pick<
+  EconomicEventRow,
+  "id" | "title" | "event_time" | "source_url" | "release_status" | "reference_period"
+>;
 
 type ReportModuleCardProps = {
   eyebrow: string;
@@ -459,8 +465,7 @@ function SpeechArchiveView({
 
   const archivedSpeeches = speeches.filter(({ event, transcript }) =>
     event.release_status !== "scheduled" &&
-    transcript?.transcript_status === "published" &&
-    Boolean(transcript.transcript_text),
+    Boolean(event.source_url || transcript?.source_url),
   );
 
   useEffect(() => {
@@ -536,7 +541,7 @@ function SpeechArchiveView({
               (event.title === "FOMC Press Conference"
                 ? "https://www.federalreserve.gov/monetarypolicy/fomc.htm"
                 : null);
-            const officialUrl = event.source_url || transcript?.source_url;
+            const officialUrl = transcript?.source_url || event.source_url;
             const hasTranscript =
               transcript?.transcript_status === "published" &&
               Boolean(transcript.transcript_text);
@@ -626,13 +631,158 @@ function SpeechArchiveView({
                     </>
                   ) : (
                     <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-gray-600">
-                      Official transcript pending publication or unavailable
+                    Official transcript pending publication or unavailable; use the direct official release above.
                     </p>
                   )}
                 </div>
               </article>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OfficialDataAccessView({ onBack }: { onBack: () => void }) {
+  const [minutes, setMinutes] = useState<OfficialDataEvent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadMinutes = useCallback(async (signal?: AbortSignal) => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        "/api/economic-events?currency=USD&from=2021-01-01T00:00:00Z&to=2030-01-01T00:00:00Z&limit=500",
+        { cache: "no-store", signal },
+      );
+      const payload = (await response.json()) as {
+        events?: OfficialDataEvent[];
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.message || "Official documents could not be loaded.");
+      }
+
+      setMinutes(
+        (payload.events || [])
+          .filter(
+            (event) =>
+              event.title === "FOMC Meeting Minutes" &&
+              event.release_status !== "scheduled" &&
+              Boolean(event.source_url),
+          )
+          .sort(
+            (left, right) =>
+              new Date(right.event_time).getTime() - new Date(left.event_time).getTime(),
+          ),
+      );
+    } catch (caught) {
+      if (caught instanceof Error && caught.name === "AbortError") return;
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Official documents could not be loaded.",
+      );
+    } finally {
+      if (!signal?.aborted) setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadMinutes(controller.signal);
+    return () => controller.abort();
+  }, [loadMinutes]);
+
+  return (
+    <div className="space-y-5">
+      <div className="border border-gray-800 bg-[#111111] p-5">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-2 font-mono text-xs font-bold text-gray-400 transition hover:text-cyan-300"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Reports Hub
+        </button>
+
+        <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">
+              View-only data archive
+            </p>
+            <h1 className="mt-2 font-mono text-2xl font-black text-white sm:text-3xl">
+              FOMC Meeting Minutes
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-gray-400">
+              View released FOMC Minutes records and open each one at its official Federal Reserve source. Minutes remain separate from speeches and press-conference transcripts.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void loadMinutes()}
+            className="inline-flex h-9 shrink-0 items-center gap-2 border border-gray-800 bg-black px-3 font-mono text-xs font-bold text-gray-300 transition hover:border-cyan-400 hover:text-cyan-300"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex min-h-48 items-center justify-center border border-gray-800 bg-[#111111] font-mono text-sm text-gray-500">
+          Loading official FOMC Minutes...
+        </div>
+      ) : error ? (
+        <div className="border border-red-500/30 bg-red-500/10 p-5 text-sm text-red-300">
+          {error}
+        </div>
+      ) : minutes.length === 0 ? (
+        <div className="border border-gray-800 bg-[#111111] p-8 text-center text-sm text-gray-500">
+          No released FOMC Minutes are available yet.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+            <p className="font-mono text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
+              {minutes.length} released documents
+            </p>
+            <p className="font-mono text-[10px] text-gray-600">Official Federal Reserve source</p>
+          </div>
+
+          {minutes.map((minute) => (
+            <article
+              key={minute.id}
+              className="flex flex-col gap-4 border border-gray-800 bg-[#111111] p-4 transition hover:border-cyan-400/40 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-gray-600">
+                  {formatSpeechDate(minute.event_time)}
+                </p>
+                <h2 className="mt-2 text-sm font-semibold text-white sm:text-base">
+                  {minute.title}
+                </h2>
+                <p className="mt-1 text-xs text-gray-500">
+                  {minute.reference_period || "Federal Reserve monetary-policy meeting"}
+                </p>
+              </div>
+
+              <a
+                href={minute.source_url || undefined}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex shrink-0 items-center justify-center gap-2 border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 font-mono text-xs font-bold text-cyan-300 transition hover:border-cyan-300 hover:text-cyan-200"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Open official minutes
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </article>
+          ))}
         </div>
       )}
     </div>
@@ -967,7 +1117,7 @@ export default function ReportsWorkspace({
           </h1>
 
           <p className="mt-3 max-w-3xl text-sm leading-relaxed text-gray-400">
-            Market Intelligence is live now. The remaining report modules are reserved for future economic transcripts, downloadable fundamental datasets and personal trade reports.
+            Market Intelligence, official Fed speech archives and official document access are available here. Personal trade reports remain planned for a later release.
           </p>
         </div>
 
@@ -994,10 +1144,11 @@ export default function ReportsWorkspace({
 
           <ReportModuleCard
             eyebrow="Fundamental datasets"
-            title="Data Downloads"
-            description="A central place for downloadable COT, Open Interest, Volume and other fundamental datasets made available inside EdgeVault."
-            status="coming-soon"
-            icon={<Download className="h-5 w-5" />}
+            title="Data Archive"
+            description="View official FOMC Minutes and other fundamental datasets from one organized Reports Hub archive. Downloading will be added later."
+            status="live"
+            icon={<FileText className="h-5 w-5" />}
+            onOpen={() => setView("data-access")}
           />
 
           <ReportModuleCard
@@ -1019,6 +1170,10 @@ export default function ReportsWorkspace({
         initialSpeechEventId={initialSpeechEventId}
       />
     );
+  }
+
+  if (view === "data-access") {
+    return <OfficialDataAccessView onBack={() => setView("hub")} />;
   }
 
   const priceTrend =

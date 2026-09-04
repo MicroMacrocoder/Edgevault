@@ -98,10 +98,40 @@ function extractFirst(html: string, expression: RegExp): string | null {
 }
 
 async function extractPdfTranscriptText(buffer: ArrayBuffer): Promise<string> {
+  // pdfjs-dist expects this browser geometry global during module
+  // initialization. Text extraction does not need a rendering canvas, so use
+  // a small identity matrix polyfill that remains safe in a server bundle.
+  const runtime = globalThis as typeof globalThis & {
+    DOMMatrix?: unknown;
+  };
+  if (!runtime.DOMMatrix) {
+    class ServerDOMMatrix {
+      a = 1;
+      b = 0;
+      c = 0;
+      d = 1;
+      e = 0;
+      f = 0;
+
+      constructor(init?: string | number[]) {
+        if (Array.isArray(init) && init.length >= 6) {
+          [this.a, this.b, this.c, this.d, this.e, this.f] = init;
+        }
+      }
+    }
+    Object.defineProperty(globalThis, "DOMMatrix", {
+      value: ServerDOMMatrix,
+      configurable: true,
+    });
+  }
+
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const document = await pdfjs.getDocument({
     data: new Uint8Array(buffer),
-  }).promise;
+    disableWorker: true,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+  } as Parameters<typeof pdfjs.getDocument>[0]).promise;
   const pages: string[] = [];
 
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
@@ -118,13 +148,27 @@ async function extractPdfTranscriptText(buffer: ArrayBuffer): Promise<string> {
   return pages.join("\n\n").trim();
 }
 
-function getFomcTranscriptPdfUrl(sourceUrl: string): string | null {
+function getFomcTranscriptPdfUrl(
+  sourceUrl: string,
+  eventTitle?: string,
+  eventTime?: string,
+): string | null {
   const match = sourceUrl.match(
     /\/monetarypolicy\/fomc(?:pres|press)conf(\d{8})\.htm/i,
   );
-  return match
-    ? `https://www.federalreserve.gov/mediacenter/files/FOMCpresconf${match[1]}.pdf`
-    : null;
+  if (match) {
+    return `https://www.federalreserve.gov/mediacenter/files/FOMCpresconf${match[1]}.pdf`;
+  }
+
+  if (eventTitle !== "FOMC Press Conference" || !eventTime) return null;
+  const date = new Date(eventTime);
+  if (Number.isNaN(date.getTime())) return null;
+  const dateKey = [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("");
+  return `https://www.federalreserve.gov/mediacenter/files/FOMCpresconf${dateKey}.pdf`;
 }
 
 export function extractOfficialSpeechTranscript(
@@ -237,7 +281,8 @@ async function fetchTranscript(event: EconomicEventRow) {
   );
 
   const transcriptPdfUrl =
-    parsed.transcriptPdfUrl || getFomcTranscriptPdfUrl(event.source_url);
+    parsed.transcriptPdfUrl ||
+    getFomcTranscriptPdfUrl(event.source_url, event.title, event.event_time);
 
   if (transcriptPdfUrl) {
     try {
