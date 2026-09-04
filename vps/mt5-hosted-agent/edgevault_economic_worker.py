@@ -66,6 +66,7 @@ SCHEDULE_SYNC_PATHS = {
     "adp": "/api/economic-events/sync/adp",
     "nar": "/api/economic-events/sync/nar",
     "regional_fed": "/api/economic-events/sync/regional-fed",
+    "eurostat": "/api/economic-events/sync/euro-area",
 }
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
@@ -250,6 +251,14 @@ def synchronize_calendar() -> dict[str, Any]:
         regional_fed_result.get("fetched"),
         regional_fed_result.get("synced"),
     )
+    eurostat_result = request_json(
+        "/api/economic-events/sync/euro-area", method="POST", authorized=True
+    )
+    LOG.info(
+        "Eurostat calendar synchronized: fetched=%s synced=%s",
+        eurostat_result.get("fetched"),
+        eurostat_result.get("synced"),
+    )
     return {
         "bls": bls_result,
         "bea": bea_result,
@@ -264,6 +273,7 @@ def synchronize_calendar() -> dict[str, Any]:
         "adp": adp_result,
         "nar": nar_result,
         "regional_fed": regional_fed_result,
+        "eurostat": eurostat_result,
     }
 
 
@@ -351,11 +361,13 @@ def synchronize_schedule_source(source: str) -> dict[str, Any]:
     return result
 
 
-def fetch_upcoming_release_times(source_agency: str) -> list[datetime]:
+def fetch_upcoming_release_times(
+    source_agency: str, currency: str = "USD"
+) -> list[datetime]:
     now = datetime.now(timezone.utc)
     query = urllib.parse.urlencode(
         {
-            "currency": "USD",
+            "currency": currency,
             "from": (now - timedelta(minutes=30)).isoformat(),
             "to": (now + timedelta(days=8)).isoformat(),
             "limit": "500",
@@ -414,9 +426,11 @@ def refresh_release_watches(
         "adp": "ADP Research",
         "nar": "National Association of REALTORS",
         "regional_fed": "Federal Reserve Regional Surveys",
+        "eurostat": "Eurostat",
     }
     for source, source_agency in sources.items():
-        for event_time in fetch_upcoming_release_times(source_agency):
+        currency = "EUR" if source == "eurostat" else "USD"
+        for event_time in fetch_upcoming_release_times(source_agency, currency):
             key = f"{source}:{event_time.isoformat()}"
             if key in completed or key in watches:
                 continue

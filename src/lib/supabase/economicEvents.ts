@@ -174,9 +174,10 @@ export async function getStoredEconomicEvents(options?: {
   let query = supabase
     .from("economic_events")
     .select("*")
-    .eq("currency", currency)
     .order("event_time", { ascending: true })
     .limit(limit);
+
+  if (currency !== "ALL") query = query.eq("currency", currency);
 
   if (options?.from) query = query.gte("event_time", options.from);
   if (options?.to) query = query.lte("event_time", options.to);

@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const requestedLimit = Number(url.searchParams.get("limit") || "500");
     const { error, events } = await getStoredEconomicEvents({
-      currency: url.searchParams.get("currency") || "USD",
+      currency: (url.searchParams.get("currency") || "USD").toUpperCase(),
       from: validIsoDate(url.searchParams.get("from")),
       to: validIsoDate(url.searchParams.get("to")),
       limit: Number.isFinite(requestedLimit) ? requestedLimit : 500,
