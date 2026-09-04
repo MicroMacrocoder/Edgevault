@@ -243,14 +243,21 @@ def synchronize_calendar() -> dict[str, Any]:
         nar_result.get("fetched"),
         nar_result.get("synced"),
     )
-    regional_fed_result = request_json(
-        "/api/economic-events/sync/regional-fed", method="POST", authorized=True
-    )
-    LOG.info(
-        "Regional Federal Reserve calendar synchronized: fetched=%s synced=%s",
-        regional_fed_result.get("fetched"),
-        regional_fed_result.get("synced"),
-    )
+    try:
+        regional_fed_result = request_json(
+            "/api/economic-events/sync/regional-fed", method="POST", authorized=True
+        )
+        LOG.info(
+            "Regional Federal Reserve calendar synchronized: fetched=%s synced=%s",
+            regional_fed_result.get("fetched"),
+            regional_fed_result.get("synced"),
+        )
+    except Exception as error:
+        regional_fed_result = {"error": str(error)}
+        LOG.warning(
+            "Regional Federal Reserve synchronization failed; continuing with remaining sources: %s",
+            error,
+        )
     eurostat_result = request_json(
         "/api/economic-events/sync/euro-area", method="POST", authorized=True
     )
