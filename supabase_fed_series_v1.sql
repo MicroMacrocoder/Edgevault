@@ -100,6 +100,27 @@ values
     'Summary of Economic Projections and dot-plot materials released with selected FOMC decisions.',
     true,
     jsonb_build_object('release_family', 'FOMC')
+  ),
+  (
+    'us-fed-board-speech',
+    'Federal Reserve Board Speeches',
+    'United States',
+    'USD',
+    'Monetary Policy',
+    'speech',
+    'As published',
+    null,
+    'Board of Governors of the Federal Reserve System',
+    'https://www.federalreserve.gov/newsevents/speeches-testimony.htm',
+    'federal-reserve',
+    75,
+    'Official speeches by the Federal Reserve Chair, Vice Chairs, Governors and other Board officials.',
+    true,
+    jsonb_build_object(
+      'release_family', 'Federal Reserve Speeches',
+      'archive_url', 'https://www.federalreserve.gov/newsevents/speeches-testimony.htm',
+      'direct_document_links', true
+    )
   )
 on conflict (series_key) do update set
   name = excluded.name,

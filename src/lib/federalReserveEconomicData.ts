@@ -2,6 +2,10 @@ import type { EconomicSourceEvent } from "@/types/economic";
 
 export const FED_FOMC_CALENDAR_URL =
   "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm";
+export const FED_SPEECH_ARCHIVE_URL =
+  "https://www.federalreserve.gov/newsevents/speeches-testimony.htm";
+export const FED_FOMC_LIVE_URL =
+  "https://www.federalreserve.gov/monetarypolicy/fomc.htm";
 
 const FED_SOURCE_NAME = "Board of Governors of the Federal Reserve System";
 const FED_BASE_URL = "https://www.federalreserve.gov";
@@ -46,6 +50,10 @@ function decodeHtml(value: string): string {
     .replace(/&amp;/gi, "&")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function stripHtml(value: string): string {
+  return decodeHtml(value).replace(/\s+/g, " ").trim();
 }
 
 function absoluteUrl(path: string | null): string | null {
@@ -294,7 +302,10 @@ export async function fetchFederalReserveCalendarEvents(): Promise<EconomicSourc
           30
         ),
         meeting.pressConferenceUrl || FED_FOMC_CALENDAR_URL,
-        { press_conference_url: meeting.pressConferenceUrl }
+        {
+          press_conference_url: meeting.pressConferenceUrl,
+          watch_live_url: FED_FOMC_LIVE_URL,
+        }
       )
     );
 
@@ -345,4 +356,128 @@ export async function fetchFederalReserveCalendarEvents(): Promise<EconomicSourc
     throw new Error("The Federal Reserve calendar returned no FOMC meetings.");
   }
   return events;
+}
+
+type FedSpeech = {
+  date: string;
+  title: string;
+  speaker: string;
+  url: string;
+  watchLiveUrl: string | null;
+  archiveUrl: string;
+};
+
+function parseSpeechDate(value: string): string | null {
+  const match = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return null;
+  const date = new Date(
+    Date.UTC(Number(match[3]), Number(match[1]) - 1, Number(match[2]), 14, 0)
+  );
+  return date.getUTCFullYear() === Number(match[3]) &&
+    date.getUTCMonth() === Number(match[1]) - 1 &&
+    date.getUTCDate() === Number(match[2])
+    ? date.toISOString()
+    : null;
+}
+
+function parseFederalReserveSpeeches(html: string, archiveUrl: string): FedSpeech[] {
+  const speeches: FedSpeech[] = [];
+  const rowPattern = /<div class="row">([\s\S]*?)<\/div>\s*<\/div>/gi;
+
+  for (const match of html.matchAll(rowPattern)) {
+    const row = match[1];
+    const speechPath = row.match(
+      /href=["']([^"']*\/newsevents\/speech\/[^"']+)["']/i
+    )?.[1];
+    const dateText = row.match(/<time[^>]*>([\s\S]*?)<\/time>/i)?.[1];
+    const titleHtml = row.match(
+      /href=["'][^"']*\/newsevents\/speech\/[^"']+["'][^>]*>([\s\S]*?)<\/a>/i
+    )?.[1];
+    const speakerHtml = row.match(
+      /class=["']news__speaker["'][^>]*>([\s\S]*?)<\/p>/i
+    )?.[1];
+    if (!speechPath || !dateText || !titleHtml || !speakerHtml) continue;
+
+    const date = parseSpeechDate(stripHtml(dateText));
+    const title = stripHtml(titleHtml);
+    const speaker = stripHtml(speakerHtml);
+    if (!date || !title || !speaker) continue;
+
+    const watchLivePath = row.match(
+      /href=["']([^"']+)["'][^>]*class=["'][^"']*watchLive/i
+    )?.[1] || row.match(
+      /class=["'][^"']*watchLive[^"']*["'][^>]*href=["']([^"']+)["']/i
+    )?.[1] || null;
+
+    speeches.push({
+      date,
+      title,
+      speaker,
+      url: absoluteUrl(speechPath),
+      watchLiveUrl: watchLivePath ? new URL(watchLivePath, FED_BASE_URL).toString() : null,
+      archiveUrl,
+    });
+  }
+
+  return speeches;
+}
+
+function speechSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 90);
+}
+
+function speechEvent(speech: FedSpeech): EconomicSourceEvent {
+  const dateKey = speech.date.slice(0, 10);
+  const externalId = `fed:board-speech:${dateKey}:${speechSlug(speech.url)}`;
+  return {
+    externalId,
+    seriesKey: "us-fed-board-speech",
+    title: `${speech.speaker}: ${speech.title}`,
+    country: "United States",
+    currency: "USD",
+    eventTime: speech.date,
+    eventKind: "speech",
+    category: "Monetary Policy",
+    referencePeriod: dateKey,
+    sourceAgency: FED_SOURCE_NAME,
+    sourceUrl: speech.url,
+    sourceEventId: externalId,
+    sourcePublishedAt: speech.date,
+    releaseStatus: "released",
+    rawPayload: {
+      archive_url: speech.archiveUrl,
+      speech_title: speech.title,
+      speaker: speech.speaker,
+      watch_live_url: speech.watchLiveUrl,
+      time_precision: "date-only",
+    },
+  };
+}
+
+export async function fetchFederalReserveSpeechEvents(): Promise<EconomicSourceEvent[]> {
+  const currentYear = new Date().getUTCFullYear();
+  const years = Array.from({ length: currentYear - 2021 + 1 }, (_, index) => 2021 + index);
+  const speeches: FedSpeech[] = [];
+
+  for (const year of years) {
+    const archiveUrl = `${FED_BASE_URL}/newsevents/${year}-speeches.htm`;
+    const response = await fetch(archiveUrl, {
+      cache: "no-store",
+      headers: {
+        Accept: "text/html",
+        "User-Agent": "EdgeVault-Economic-Calendar/1.0",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Federal Reserve speech archive failed with HTTP ${response.status}.`);
+    }
+    speeches.push(...parseFederalReserveSpeeches(await response.text(), archiveUrl));
+  }
+
+  const unique = new Map(speeches.map((speech) => [`${speech.url}|${speech.date}`, speech]));
+  return [...unique.values()].map(speechEvent);
 }
