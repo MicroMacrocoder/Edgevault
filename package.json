@@ -2,6 +2,9 @@
   "name": "trading-journal",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -14,7 +17,7 @@
     "adm-zip": "^0.5.17",
     "lucide-react": "0.378.0",
     "next": "14.2.3",
-    "pdfjs-dist": "^5.6.205",
+    "pdfjs-dist": "^4.10.38",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "recharts": "^3.8.1"
