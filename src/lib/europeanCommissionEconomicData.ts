@@ -45,6 +45,12 @@ type ScheduledRelease = {
   sourceUrl: string;
 };
 
+type PublishedReleaseLink = {
+  kind: "flash" | "full";
+  referencePeriod: string;
+  sourceUrl: string;
+};
+
 const SERIES_DEFINITIONS: SeriesDefinition[] = [
   {
     seriesKey: "eur-ecfin-economic-sentiment",
@@ -387,10 +393,18 @@ function withinCalendarWindow(date: Date): boolean {
   return date.getTime() >= now - 370 * 86400000 && date.getTime() <= now + 370 * 86400000;
 }
 
-function eventForRelease(release: ScheduledRelease, seriesKey: string, title: string, category: string, unit: string): EconomicSourceEvent {
+function eventForRelease(
+  release: ScheduledRelease,
+  seriesKey: string,
+  title: string,
+  category: string,
+  unit: string,
+  publishedReleaseUrl?: string
+): EconomicSourceEvent {
   const eventTime = release.eventTime.toISOString();
   const released = release.eventTime.getTime() <= Date.now();
   const externalId = `ecfin:${release.kind}:${release.referencePeriod}:${seriesKey}`;
+  const sourceUrl = publishedReleaseUrl || (released ? ECFIN_LATEST_RELEASES_URL : release.sourceUrl);
   return {
     externalId,
     seriesKey,
@@ -402,7 +416,7 @@ function eventForRelease(release: ScheduledRelease, seriesKey: string, title: st
     category,
     referencePeriod: release.referencePeriod,
     sourceAgency: ECFIN_SOURCE_NAME,
-    sourceUrl: ECFIN_LATEST_RELEASES_URL,
+    sourceUrl,
     sourceEventId: externalId,
     sourcePublishedAt: released ? eventTime : null,
     unit,
@@ -411,11 +425,56 @@ function eventForRelease(release: ScheduledRelease, seriesKey: string, title: st
       release_kind: release.kind,
       release_schedule_url: release.sourceUrl,
       latest_releases_url: ECFIN_LATEST_RELEASES_URL,
+      direct_release_url: publishedReleaseUrl || null,
       reference_period: release.referencePeriod,
       values_workflow: release.kind === "full" ? "official_ecfin_bulk_time_series" : "calendar_only",
       calendar_only_reason: release.kind === "flash" ? "flash_release_has_no_separate_machine_readable_series_in_the_official_bulk_files" : null,
     },
   };
+}
+
+function parsePublishedReleaseLinks(html: string): PublishedReleaseLink[] {
+  const links: PublishedReleaseLink[] = [];
+  const filePattern = /<li[^>]*ecl-file__detail-meta-item[^>]*>([\s\S]*?)<\/li>[\s\S]*?<div[^>]*ecl-file__title[^>]*>([\s\S]*?)<\/div>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*ecl-file__download/gi;
+  for (const match of html.matchAll(filePattern)) {
+    const dateText = decodeXml(match[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+    const title = decodeXml(match[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+    const dateMatch = dateText.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+    if (!dateMatch) continue;
+    const parsedDate = new Date(`${dateMatch[2]} ${dateMatch[1]}, ${dateMatch[3]}`);
+    if (Number.isNaN(parsedDate.getTime())) continue;
+
+    const normalizedTitle = title.toLowerCase();
+    const kind = normalizedTitle.includes("flash consumer confidence indicator")
+      ? "flash"
+      : normalizedTitle.includes("press release business and consumer survey results") &&
+          !normalizedTitle.includes("statistical annex")
+        ? "full"
+        : null;
+    if (!kind) continue;
+
+    const referencePeriod = parsedDate.toLocaleString("en-US", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+    links.push({
+      kind,
+      referencePeriod,
+      sourceUrl: new URL(decodeXml(match[3]), ECFIN_LATEST_RELEASES_URL).toString(),
+    });
+  }
+  return links;
+}
+
+async function fetchPublishedReleaseLinks(): Promise<Map<string, string>> {
+  const response = await fetch(ECFIN_LATEST_RELEASES_URL, {
+    cache: "no-store",
+    headers: { Accept: "text/html", "User-Agent": "EdgeVault-Economic-Calendar/1.0" },
+  });
+  if (!response.ok) throw new Error(`European Commission latest releases page failed with HTTP ${response.status}.`);
+  const links = parsePublishedReleaseLinks(await response.text());
+  return new Map(links.map((link) => [`${link.kind}:${link.referencePeriod}`, link.sourceUrl]));
 }
 
 async function findArchiveUrls(): Promise<Record<keyof typeof ECFIN_ARCHIVE_FILE_NAMES, string>> {
@@ -513,19 +572,21 @@ export async function fetchEuropeanCommissionHistoricalObservations(): Promise<{
 
 export async function fetchEuropeanCommissionCalendarEvents(): Promise<EconomicSourceEvent[]> {
   const currentYear = new Date().getUTCFullYear();
-  const [previous, current] = await Promise.all([
+  const [previous, current, publishedReleaseLinks] = await Promise.all([
     fetchSchedule(currentYear - 1, false),
     fetchSchedule(currentYear, true),
+    fetchPublishedReleaseLinks().catch(() => new Map<string, string>()),
   ]);
   const releases = [...previous, ...current].filter((release) => withinCalendarWindow(release.eventTime));
   const events: EconomicSourceEvent[] = [];
   for (const release of releases) {
+    const publishedReleaseUrl = publishedReleaseLinks.get(`${release.kind}:${release.referencePeriod}`);
     if (release.kind === "flash") {
-      events.push(eventForRelease(release, FLASH_SERIES_KEY, "Euro Area Flash Consumer Confidence Indicator", "Surveys", "%"));
+      events.push(eventForRelease(release, FLASH_SERIES_KEY, "Euro Area Flash Consumer Confidence Indicator", "Surveys", "%", publishedReleaseUrl));
       continue;
     }
     for (const definition of SERIES_DEFINITIONS) {
-      events.push(eventForRelease(release, definition.seriesKey, definition.title, definition.category, definition.unit));
+      events.push(eventForRelease(release, definition.seriesKey, definition.title, definition.category, definition.unit, publishedReleaseUrl));
     }
   }
 
