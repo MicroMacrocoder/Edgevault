@@ -4,6 +4,9 @@ const nextConfig = {
   // Keep it external so the ESM parser is available in the deployed function.
   experimental: {
     serverComponentsExternalPackages: ["pdfjs-dist"],
+    outputFileTracingIncludes: {
+      "/*": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
+    },
   },
 };
 
