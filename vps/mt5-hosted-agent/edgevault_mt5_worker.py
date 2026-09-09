@@ -56,11 +56,21 @@ BASE_URL = required_env("EDGEVAULT_BASE_URL", "EDGEVAULT_API_BASE").rstrip("/")
 WORKER_SECRET = required_env("EDGEVAULT_WORKER_SECRET", "MT5_WORKER_SECRET")
 WORKER_ID = os.getenv("EDGEVAULT_WORKER_ID", "london-mt5-01").strip()
 SLOT_ROOT = Path(os.getenv("MT5_SLOT_ROOT", r"C:\EdgeVaultMT5").strip())
-SLOT_NAMES = [item.strip() for item in os.getenv("MT5_SLOT_NAMES", "Slot01").split(",") if item.strip()]
+SLOT_NAMES = [
+    item.strip()
+    for item in os.getenv(
+        "MT5_SLOT_NAMES",
+        "Slot01,Slot02,Slot03,Slot04,Slot05,Slot06",
+    ).split(",")
+    if item.strip()
+]
 SERVER_DATABASE_VALUE = os.getenv("MT5_SERVER_DATABASE", "").strip()
 SERVER_DATABASE_PATH = Path(SERVER_DATABASE_VALUE) if SERVER_DATABASE_VALUE else None
 POLL_SECONDS = max(1, int(os.getenv("POLL_SECONDS", "3")))
 CONNECT_TIMEOUT_SECONDS = max(30, int(os.getenv("CONNECT_TIMEOUT_SECONDS", "150")))
+SYMBOL_PROBE_TIMEOUT_SECONDS = max(
+    20, int(os.getenv("MT5_SYMBOL_PROBE_TIMEOUT_SECONDS", "45"))
+)
 DISCOVERY_TIMEOUT_SECONDS = max(30, int(os.getenv("DISCOVERY_TIMEOUT_SECONDS", "120")))
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 CACHE_DIR = AGENT_DIR / "server-cache"
@@ -80,6 +90,9 @@ class ActiveSession:
     last_result_mtime_ns: int = 0
     connected: bool = False
     started_at: float = 0.0
+    job: dict[str, Any] | None = None
+    symbol_candidates: tuple[str, ...] = ()
+    symbol_index: int = 0
 
 
 @dataclass
@@ -531,7 +544,35 @@ def compile_slot_bridge(slot_path: Path) -> None:
         )
 
 
-def write_terminal_config(slot_path: Path, job: dict[str, Any]) -> Path:
+DEFAULT_BRIDGE_SYMBOLS = (
+    "EURUSD",
+    "EURUSDm",
+    "EURUSDc",
+    "EURUSD.a",
+    "EURUSD.r",
+    "EURUSD.raw",
+    "EURUSDpro",
+    "EURUSD_i",
+    "EURUSD#",
+    "EURUSD-ECN",
+    "EURUSD-STD",
+    "EURUSD-RAW",
+    "XAUUSD",
+    "XAUUSDm",
+    "XAUUSDc",
+    "XAUUSD.a",
+)
+
+
+def bridge_symbol_candidates() -> tuple[str, ...]:
+    """Return broker-independent startup symbols, with an optional override."""
+    configured = os.getenv("MT5_BRIDGE_SYMBOLS", "")
+    values = [item.strip() for item in configured.split(",") if item.strip()]
+    candidates = values or list(DEFAULT_BRIDGE_SYMBOLS)
+    return tuple(dict.fromkeys(candidates))
+
+
+def write_terminal_config(slot_path: Path, job: dict[str, Any], bridge_symbol: str) -> Path:
     runtime_dir = slot_path / "EdgeVaultRuntime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     config_path = runtime_dir / f"connect-{job['id']}.ini"
@@ -548,11 +589,32 @@ def write_terminal_config(slot_path: Path, job: dict[str, Any]) -> Path:
     }
     config["StartUp"] = {
         "Expert": "EdgeVaultBridge", "ExpertParameters": "EdgeVaultBridge.set",
-        "Symbol": "EURUSD", "Period": "M1", "ShutdownTerminal": "0",
+        "Symbol": bridge_symbol, "Period": "M1", "ShutdownTerminal": "0",
     }
     with config_path.open("w", encoding="utf-8", newline="\r\n") as file:
         config.write(file, space_around_delimiters=False)
     return config_path
+
+
+def prepare_edgevault_profile(slot_path: Path) -> str:
+    """Create a clean, slot-owned chart profile for the bridge session.
+
+    The default MT5 profile can contain charts from an older terminal build.
+    A terminal update may make those chart files unloadable, which prevents
+    the bridge expert from attaching to the startup chart.  The hosted
+    worker does not need the user's visual profile, so every connection gets
+    a clean profile dedicated to this slot.  Existing default/user profiles
+    are left untouched.
+    """
+    profile_name = f"EdgeVault-{slot_path.name}"
+    profile_path = slot_path / "MQL5" / "Profiles" / "Charts" / profile_name
+    profile_path.mkdir(parents=True, exist_ok=True)
+    for child in profile_path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    return profile_name
 
 
 def read_preset_values(path: Path) -> dict[str, str]:
@@ -640,17 +702,65 @@ def start_job(job: dict[str, Any], slot_name: str) -> ActiveSession:
     result_path.unlink(missing_ok=True)
     sync_path.unlink(missing_ok=True)
     write_preset(slot_path, job)
-    config_path = write_terminal_config(slot_path, job)
-    LOG.info("Launching %s for MT5 login %s on server %s", slot_name, job["login"], job["server"])
+    profile_name = prepare_edgevault_profile(slot_path)
+    symbol_candidates = bridge_symbol_candidates()
+    bridge_symbol = symbol_candidates[0]
+    LOG.info("Prepared clean MT5 profile %s for %s", profile_name, slot_name)
+    config_path = write_terminal_config(slot_path, job, bridge_symbol)
+    LOG.info(
+        "Launching %s for MT5 login %s on server %s using bridge symbol %s",
+        slot_name,
+        job["login"],
+        job["server"],
+        bridge_symbol,
+    )
     process = subprocess.Popen(
-        [str(terminal_path), f"/config:{config_path}", "/portable"],
+        [str(terminal_path), f"/config:{config_path}", f"/profile:{profile_name}", "/portable"],
         cwd=str(slot_path), creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
     )
     return ActiveSession(
         slot_name=slot_name, job_id=str(job["id"]), account_id=str(job["accountId"]),
         expected_login=str(job["login"]), result_path=result_path, sync_path=sync_path,
         config_path=config_path, process=process, started_at=time.monotonic(),
+        job=job, symbol_candidates=symbol_candidates, symbol_index=0,
     )
+
+
+def retry_with_next_bridge_symbol(session: ActiveSession) -> bool:
+    """Restart one session with the next candidate symbol, if available."""
+    if not session.job or not session.symbol_candidates:
+        return False
+    next_index = session.symbol_index + 1
+    if next_index >= len(session.symbol_candidates):
+        return False
+
+    slot_path = SLOT_ROOT / session.slot_name
+    terminal_path = slot_path / "terminal64.exe"
+    previous_symbol = session.symbol_candidates[session.symbol_index]
+    next_symbol = session.symbol_candidates[next_index]
+    session.config_path.unlink(missing_ok=True)
+    session.result_path.unlink(missing_ok=True)
+    session.sync_path.unlink(missing_ok=True)
+    stop_slot_terminal(terminal_path)
+    profile_name = prepare_edgevault_profile(slot_path)
+    config_path = write_terminal_config(slot_path, session.job, next_symbol)
+    LOG.warning(
+        "%s produced no bridge snapshot on %s; retrying with %s",
+        session.slot_name,
+        previous_symbol,
+        next_symbol,
+    )
+    process = subprocess.Popen(
+        [str(terminal_path), f"/config:{config_path}", f"/profile:{profile_name}", "/portable"],
+        cwd=str(slot_path), creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+    )
+    session.config_path = config_path
+    session.process = process
+    session.symbol_index = next_index
+    session.started_at = time.monotonic()
+    session.last_result_mtime_ns = 0
+    session.connected = False
+    return True
 
 
 def read_new_snapshot(session: ActiveSession) -> dict[str, Any] | None:
@@ -671,6 +781,8 @@ def read_new_snapshot(session: ActiveSession) -> dict[str, Any] | None:
 def forward_snapshots(sessions: dict[str, ActiveSession]) -> None:
     for slot_name, session in list(sessions.items()):
         if session.process.poll() is not None:
+            if not session.connected and retry_with_next_bridge_symbol(session):
+                continue
             if not session.connected:
                 post_result(session.job_id, slot_name, False, "The MT5 terminal closed before the account connected.")
             session.config_path.unlink(missing_ok=True)
@@ -685,11 +797,19 @@ def forward_snapshots(sessions: dict[str, ActiveSession]) -> None:
             if (
                 not session.connected
                 and session.started_at > 0
-                and time.monotonic() - session.started_at >= CONNECT_TIMEOUT_SECONDS
+                and time.monotonic() - session.started_at >= (
+                    SYMBOL_PROBE_TIMEOUT_SECONDS
+                    if session.symbol_candidates
+                    else CONNECT_TIMEOUT_SECONDS
+                )
             ):
+                if retry_with_next_bridge_symbol(session):
+                    continue
                 message = (
                     "The MT5 terminal opened, but the EdgeVault bridge did not return "
-                    f"a connection result within {CONNECT_TIMEOUT_SECONDS} seconds."
+                    "a connection result for any supported broker symbol. "
+                    f"The final symbol attempt was "
+                    f"{session.symbol_candidates[-1] if session.symbol_candidates else 'unknown'}."
                 )
                 post_result(session.job_id, slot_name, False, message)
                 LOG.error("%s connection timed out: no bridge result file", slot_name)

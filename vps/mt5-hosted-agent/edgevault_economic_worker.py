@@ -67,6 +67,7 @@ SCHEDULE_SYNC_PATHS = {
     "nar": "/api/economic-events/sync/nar",
     "regional_fed": "/api/economic-events/sync/regional-fed",
     "eurostat": "/api/economic-events/sync/euro-area",
+    "european_commission": "/api/economic-events/sync/european-commission",
 }
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
@@ -266,6 +267,18 @@ def synchronize_calendar() -> dict[str, Any]:
         eurostat_result.get("fetched"),
         eurostat_result.get("synced"),
     )
+    european_commission_result = request_json(
+        "/api/economic-events/sync/european-commission",
+        method="POST",
+        authorized=True,
+        timeout=240,
+    )
+    LOG.info(
+        "European Commission calendar synchronized: fetched=%s synced=%s values=%s",
+        european_commission_result.get("fetched"),
+        european_commission_result.get("synced"),
+        european_commission_result.get("valueBacked"),
+    )
     return {
         "bls": bls_result,
         "bea": bea_result,
@@ -281,6 +294,7 @@ def synchronize_calendar() -> dict[str, Any]:
         "nar": nar_result,
         "regional_fed": regional_fed_result,
         "eurostat": eurostat_result,
+        "european_commission": european_commission_result,
     }
 
 
@@ -348,6 +362,23 @@ def synchronize_dol_history() -> dict[str, Any]:
     )
     LOG.info(
         "DOL history synchronized: synced=%s inserted=%s revised=%s events=%s",
+        result.get("synced"),
+        result.get("inserted"),
+        result.get("revised"),
+        result.get("calendarEventsUpdated"),
+    )
+    return result
+
+
+def synchronize_european_commission_history() -> dict[str, Any]:
+    result = request_json(
+        "/api/economic-events/sync/european-commission/history",
+        method="POST",
+        authorized=True,
+        timeout=300,
+    )
+    LOG.info(
+        "European Commission history synchronized: synced=%s inserted=%s revised=%s events=%s",
         result.get("synced"),
         result.get("inserted"),
         result.get("revised"),
@@ -434,9 +465,10 @@ def refresh_release_watches(
         "nar": "National Association of REALTORS",
         "regional_fed": "Federal Reserve Regional Surveys",
         "eurostat": "Eurostat",
+        "european_commission": "European Commission DG ECFIN Business and Consumer Surveys",
     }
     for source, source_agency in sources.items():
-        currency = "EUR" if source == "eurostat" else "USD"
+        currency = "EUR" if source in {"eurostat", "european_commission"} else "USD"
         for event_time in fetch_upcoming_release_times(source_agency, currency):
             key = f"{source}:{event_time.isoformat()}"
             if key in completed or key in watches:
@@ -539,6 +571,7 @@ def main() -> None:
                 synchronize_bea_history()
                 synchronize_census_history()
                 synchronize_dol_history()
+                synchronize_european_commission_history()
                 startup_history_pending = False
 
             if now_monotonic >= next_full_history:
@@ -546,6 +579,7 @@ def main() -> None:
                 synchronize_bea_history()
                 synchronize_census_history()
                 synchronize_dol_history()
+                synchronize_european_commission_history()
                 next_full_history = now_monotonic + FULL_HISTORY_SECONDS
 
             if now_monotonic >= next_event_refresh:

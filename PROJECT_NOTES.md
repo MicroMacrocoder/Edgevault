@@ -74,9 +74,9 @@ Federal Reserve Regional Surveys — New York Fed Empire State Survey
 
 Eurostat — Eurostat release calendar
 
-Planned EUR sources:
+European Commission DG ECFIN — Business and Consumer Surveys
 
-European Commission surveys — Business and consumer surveys
+Planned EUR sources:
 
 ECB statistical releases — ECB statistics
 
@@ -394,7 +394,11 @@ Roadmap — EUR Coverage
 
 Work on EUR coverage in this priority order:
 
-European Commission surveys, including business and consumer confidence surveys.
+European Commission DG ECFIN Business and Consumer Surveys
+
+Fully done
+
+The connector now imports the official annual DG ECFIN release schedule and retains separate EUR calendar events for the monthly Flash Consumer Confidence Indicator and the full Business and Consumer Survey release. The full release is split into Economic Sentiment (ESI), Employment Expectations (EEI), Industrial Confidence, Services Confidence, Consumer Confidence, Retail Trade Confidence, Construction Confidence, Economic Uncertainty (EUI), Labour Hoarding (LHI), and Business Climate (BCI). Numeric history for the ten full-release indicators is loaded from the Commission's official BCS bulk ZIP/XLSX files. Flash Consumer Confidence remains Calendar-only because the official bulk files do not expose a separate flash time series. The schedule PDF parser loads pdfjs-dist at Node runtime so Next.js does not bundle the ESM parser into the route and fail during local or production sync.
 
 European Central Bank releases: interest-rate decisions, monetary-policy press conferences, introductory statements, press-conference Q&A transcripts, accounts/minutes, and related monetary-policy releases.
 
