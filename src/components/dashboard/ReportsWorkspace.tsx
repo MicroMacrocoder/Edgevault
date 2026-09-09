@@ -430,7 +430,10 @@ function SpeechArchiveView({
   currency?: string;
   sourceAgency?: string | null;
 }) {
-  const currencyLabel = currency === "USD" ? "USD / DXY" : currency;
+  const [selectedCurrency, setSelectedCurrency] = useState(currency.toUpperCase());
+  const selectedSourceAgency =
+    selectedCurrency === currency.toUpperCase() ? sourceAgency : null;
+  const currencyLabel = selectedCurrency === "USD" ? "USD / DXY" : selectedCurrency;
   const [speeches, setSpeeches] = useState<SpeechArchiveRecord[]>([]);
   const [expandedTranscriptId, setExpandedTranscriptId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -441,11 +444,11 @@ function SpeechArchiveView({
     setError("");
 
     try {
-      const sourceQuery = sourceAgency
-        ? `&sourceAgency=${encodeURIComponent(sourceAgency)}`
+      const sourceQuery = selectedSourceAgency
+        ? `&sourceAgency=${encodeURIComponent(selectedSourceAgency)}`
         : "";
       const response = await fetch(
-        `/api/economic-speeches?currency=${encodeURIComponent(currency)}${sourceQuery}`,
+        `/api/economic-speeches?currency=${encodeURIComponent(selectedCurrency)}${sourceQuery}`,
         {
         cache: "no-store",
         signal,
@@ -470,7 +473,7 @@ function SpeechArchiveView({
     } finally {
       if (!signal?.aborted) setIsLoading(false);
     }
-  }, [currency, sourceAgency]);
+  }, [selectedCurrency, selectedSourceAgency]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -507,16 +510,39 @@ function SpeechArchiveView({
         <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">
-              {currency === "EUR" ? "EUR / ECB policy archive" : `${currencyLabel} policy archive`}
+              {selectedCurrency === "EUR" ? "EUR / ECB policy archive" : `${currencyLabel} policy archive`}
             </p>
             <h1 className="mt-2 font-mono text-2xl font-black text-white sm:text-3xl">
-              {currency === "EUR" ? "ECB Speeches & Transcripts" : "Fed Speeches & Transcripts"}
+              {selectedCurrency === "EUR" ? "ECB Speeches & Transcripts" : "Fed Speeches & Transcripts"}
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-relaxed text-gray-400">
-              {currency === "EUR"
+              {selectedCurrency === "EUR"
                 ? "Official ECB Executive Board speeches and monetary-policy press-conference Q&A are archived here. The ECB publication remains the authoritative source."
                 : "Official Federal Reserve Board speeches are archived here. The official speech page is authoritative; any future live transcript will remain a separate provisional record."}
             </p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 border border-gray-800 bg-black p-1">
+            <span className="px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-gray-600">
+              Currency
+            </span>
+            {(["USD", "EUR"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  setSelectedCurrency(option);
+                  setExpandedTranscriptId(null);
+                }}
+                className={`px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.12em] transition ${
+                  selectedCurrency === option
+                    ? "bg-cyan-500/20 text-cyan-300"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                {option === "USD" ? "USD / DXY" : "EUR / ECB"}
+              </button>
+            ))}
           </div>
 
           <button
@@ -540,7 +566,7 @@ function SpeechArchiveView({
         </div>
       ) : archivedSpeeches.length === 0 ? (
         <div className="border border-gray-800 bg-[#111111] p-8 text-center text-sm text-gray-500">
-          No completed {currency === "EUR" ? "ECB" : "Fed"} speeches with official transcripts are available yet.
+          No completed {selectedCurrency === "EUR" ? "ECB" : "Fed"} speeches with official transcripts are available yet.
         </div>
       ) : (
         <div className="space-y-3">
@@ -588,11 +614,11 @@ function SpeechArchiveView({
                         {event.title}
                       </h2>
                       <p className="mt-1 text-xs text-gray-500">
-                        {event.reference_period || (currency === "EUR" ? "European Central Bank official release" : "Board of Governors official release")}
+                        {event.reference_period || (selectedCurrency === "EUR" ? "European Central Bank official release" : "Board of Governors official release")}
                       </p>
                       <div className="mt-3 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em]">
                         <span className="border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">
-                          Currency: {event.currency || currency}
+                          Currency: {event.currency || selectedCurrency}
                         </span>
                         {event.source_agency ? (
                           <span className="border border-gray-800 px-2 py-1 text-gray-500">
@@ -639,7 +665,7 @@ function SpeechArchiveView({
                   {hasTranscript ? (
                     <>
                       <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-gray-600">
-                        Official {event.currency || currency} transcript
+                        Official {event.currency || selectedCurrency} transcript
                       </p>
                       <button
                         type="button"
@@ -1168,7 +1194,7 @@ export default function ReportsWorkspace({
           <ReportModuleCard
             eyebrow="Economic drivers"
             title="Speeches & Economic Transcripts"
-            description="Official Federal Reserve speeches with one-click live links where supplied and a separate archive path for official transcripts and future live transcripts."
+            description="Official USD/DXY and EUR/ECB speech archives with currency labels, transcript access, and one-click live links where an official stream is supplied."
             status="live"
             icon={<ScrollText className="h-5 w-5" />}
             onOpen={() => setView("speech-archive")}
