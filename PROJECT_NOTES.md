@@ -414,6 +414,12 @@ Calendar-only
 
 The connector parses the official ECB Statistical Calendar and keeps each release as a separate EUR event. Named series cover HICP, balance of payments, bank rates, monetary developments, Bank Lending Survey, government finance, investment funds, and payments, with a fallback for other official ECB statistical releases. The calendar event links to a matched official ECB press release when the ECB RSS identifies one; otherwise it links to the official statistical calendar. Multidimensional Data Portal values are not collapsed into a single calendar value without a verified series definition.
 
+National euro-area statistical releases
+
+Calendar-only
+
+The active national EUR connector covers the verified calendar sources after Germany, France, Italy, Spain, and the Netherlands: Austria, Belgium, Bulgaria, Estonia, Finland, Ireland, Malta, and Slovenia. It reads each office's official release calendar in parallel, labels every event with the issuing country and EUR, and stores the direct official release link when the office exposes one. Scheduled entries use the office calendar link; a later synchronization replaces that link with the published release link. Numeric values are not copied unless a public, official, machine-readable feed is separately verified for that series. Croatia, Cyprus, Greece, Latvia, Lithuania, Luxembourg, Portugal, and Slovakia are intentionally inactive because their first-pass calendars were not reliably parseable.
+
 National releases, in this order: Germany, France, Italy, Spain, Netherlands, then other euro-area members.
 
 EUR central-bank speeches and transcripts, including ECB Executive Board and Governing Council members and relevant national central-bank officials.
