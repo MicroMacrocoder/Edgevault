@@ -70,7 +70,8 @@ SCHEDULE_SYNC_PATHS = {
     "european_commission": "/api/economic-events/sync/european-commission",
     "ecb": "/api/economic-events/sync/ecb",
     "eurozone_pmi": "/api/economic-events/sync/eurozone-pmi",
-    "ecb_statistics": "/api/economic-events/sync/ecb/statistics",
+        "ecb_statistics": "/api/economic-events/sync/ecb/statistics",
+        "euro_national": "/api/economic-events/sync/euro-national",
 }
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
@@ -371,6 +372,25 @@ def synchronize_calendar() -> dict[str, Any]:
             "ECB statistical synchronization failed; continuing with remaining worker cycle: %s",
             error,
         )
+    try:
+        euro_national_result = request_json(
+            "/api/economic-events/sync/euro-national",
+            method="POST",
+            authorized=True,
+            timeout=120,
+        )
+        LOG.info(
+            "Euro-area national statistics calendar synchronized: countries=%s fetched=%s synced=%s",
+            euro_national_result.get("countries"),
+            euro_national_result.get("fetched"),
+            euro_national_result.get("synced"),
+        )
+    except Exception as error:
+        euro_national_result = {"error": str(error)}
+        LOG.warning(
+            "Euro-area national statistics synchronization failed; continuing with remaining worker cycle: %s",
+            error,
+        )
     return {
         "bls": bls_result,
         "bea": bea_result,
@@ -391,6 +411,7 @@ def synchronize_calendar() -> dict[str, Any]:
         "ecb_transcripts": ecb_transcript_result,
         "eurozone_pmi": eurozone_pmi_result,
         "ecb_statistics": ecb_statistics_result,
+        "euro_national": euro_national_result,
     }
 
 
@@ -581,9 +602,10 @@ def refresh_release_watches(
         "european_commission": "European Commission DG ECFIN Business and Consumer Surveys",
         "ecb": "European Central Bank",
         "eurozone_pmi": "S&P Global / HCOB",
+        "euro_national": "Euro-area National Statistical Offices",
     }
     for source, source_agency in sources.items():
-        currency = "EUR" if source in {"eurostat", "european_commission", "ecb", "eurozone_pmi"} else "USD"
+        currency = "EUR" if source in {"eurostat", "european_commission", "ecb", "eurozone_pmi", "euro_national"} else "USD"
         for event_time in fetch_upcoming_release_times(source_agency, currency):
             key = f"{source}:{event_time.isoformat()}"
             if key in completed or key in watches:
