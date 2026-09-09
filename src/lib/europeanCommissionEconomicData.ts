@@ -318,7 +318,7 @@ async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
     }
     Object.defineProperty(globalThis, "DOMMatrix", { value: ServerDOMMatrix, configurable: true });
   }
-  const pdfjs = await import(/* webpackIgnore: true */ "pdfjs-dist/legacy/build/pdf.mjs");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const document = await pdfjs.getDocument({
     data: new Uint8Array(buffer),
     disableWorker: true,
