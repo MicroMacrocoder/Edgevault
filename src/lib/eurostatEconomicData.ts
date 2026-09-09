@@ -76,8 +76,8 @@ const RELEASE_MAPPINGS: ReleaseMapping[] = [
   { match: (title) => /^industrial production /i.test(title), releases: [{ seriesKey: "eur-industrial-production-mom", title: "Euro Area Industrial Production MoM", category: "Production", unit: "%", datasetCode: "sts_inpr_m" }] },
   { match: (title) => /^retail trade/i.test(title), releases: [{ seriesKey: "eur-retail-sales-mom", title: "Euro Area Retail Sales MoM", category: "Consumption", unit: "%", datasetCode: "sts_trtu_m" }] },
   { match: (title) => /^industrial producer prices/i.test(title), releases: [{ seriesKey: "eur-ppi-mom", title: "Euro Area PPI MoM", category: "Inflation", unit: "%", datasetCode: "sts_inppd_m" }] },
-  { match: (title) => /^international trade in goods/i.test(title), releases: [{ seriesKey: "eur-trade-balance", title: "Euro Area Trade Balance", category: "Trade", unit: "EUR million", datasetCode: "ext_st_27_2020msbec" }] },
-  { match: (title) => /^balance of payments/i.test(title), releases: [{ seriesKey: "eur-current-account", title: "Euro Area Current Account", category: "Trade", unit: "EUR million", datasetCode: "bop_c6_q" }] },
+  { match: (title) => /^international trade in goods/i.test(title), releases: [{ seriesKey: "eur-trade-balance", title: "Euro Area Trade Balance", category: "Trade", unit: "EUR million", datasetCode: "ext_st_easitc" }] },
+  { match: (title) => /^balance of payments/i.test(title), releases: [{ seriesKey: "eur-current-account", title: "Euro Area Current Account", category: "Trade", unit: "EUR million", datasetCode: "bop_eu6_q" }] },
   { match: (title) => /^production in construction/i.test(title), releases: [{ seriesKey: "eur-construction-output-mom", title: "Euro Area Construction Output MoM", category: "Construction", unit: "%", datasetCode: "sts_copr_m" }] },
   { match: (title) => /^labour cost index/i.test(title), releases: [{ seriesKey: "eur-labour-cost-yoy", title: "Euro Area Labour Cost YoY", category: "Labour", unit: "%", datasetCode: "lc_lci_r2_q" }] },
   { match: (title) => /^job vacancy/i.test(title), releases: [{ seriesKey: "eur-job-vacancy-rate", title: "Euro Area Job Vacancy Rate", category: "Labour", unit: "%", datasetCode: "jvs_q_nace2" }] },
@@ -107,6 +107,31 @@ const VALUE_CONFIGS: Record<string, ValueConfig> = {
   "eur-job-vacancy-rate": { datasetCode: "jvs_q_nace2", periodKind: "quarter", query: { s_adj: "NSA", nace_r2: "B-S", sizeclas: "TOTAL", indic_em: "JVR" } },
   "eur-three-month-interest-rate": { datasetCode: "irt_st_m", periodKind: "month", query: { geo: "EA", int_rt: "IRT_M3" } },
   "eur-long-term-government-bond-yield": { datasetCode: "irt_lt_mcby_m", periodKind: "month", query: { geo: "EA", int_rt: "MCBY" } },
+  "eur-trade-balance": {
+    datasetCode: "ext_st_easitc",
+    periodKind: "month",
+    query: {
+      freq: "M",
+      stk_flow: "BAL_RT",
+      indic_et: "TRD_VAL",
+      partner: "EXT_EA21",
+      sitc06: "TOTAL",
+    },
+  },
+  "eur-current-account": {
+    datasetCode: "bop_eu6_q",
+    periodKind: "quarter",
+    query: {
+      freq: "Q",
+      currency: "MIO_EUR",
+      bop_item: "CA",
+      sector10: "S1",
+      sectpart: "S1",
+      s_adj: "SCA",
+      stk_flow: "BAL",
+      partner: "EXT_EA21",
+    },
+  },
 };
 
 function dataBrowserUrl(datasetCode?: string): string {

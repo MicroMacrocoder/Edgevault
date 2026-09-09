@@ -356,15 +356,15 @@ Numeric configuration: sts_cobp_m, building-permit index change.
 
 Euro Area Trade Balance
 
-Calendar-only
+Fully done
 
-Release mapping exists for ext_st_27_2020msbec, but no clean aggregate numeric value was verified for redistribution.
+Numeric configuration: ext_st_easitc, monthly extra-euro-area balance for total goods (EA21 / EXT_EA21 / BAL_RT / TRD_VAL).
 
 Euro Area Current Account
 
-Calendar-only
+Fully done
 
-Release mapping exists for bop_c6_q, but no clean aggregate numeric value was verified for redistribution.
+Numeric configuration: bop_eu6_q, quarterly seasonally and calendar-adjusted current-account balance (EA21 / EXT_EA21 / CA / SCA / BAL).
 
 Euro Area Job Vacancy Rate
 
@@ -402,7 +402,17 @@ The connector now imports the official annual DG ECFIN release schedule and reta
 
 European Central Bank releases: interest-rate decisions, monetary-policy press conferences, introductory statements, press-conference Q&A transcripts, accounts/minutes, other Governing Council decisions, related monetary-policy releases, and Executive Board speeches/transcripts. Implemented by `src/lib/ecbEconomicData.ts`, `src/lib/ecbSpeechTranscripts.ts`, and `supabase_ecb_series_v1.sql`. Direct publication links replace the official meeting-calendar link when a release is published.
 
-Eurozone PMI releases, with numeric values only where the official source permits redistribution; otherwise use the calendar-only direct-link workflow.
+Eurozone PMI releases
+
+Calendar-only
+
+The connector covers separate Eurozone HCOB/S&P Global Manufacturing, Services, and Composite PMI releases in both Flash and Final form. It stores EUR-labelled release events and does not copy PMI numeric values because the publisher data is treated as restricted. Verified releases use their direct official S&P Global Eurozone report page; scheduled releases use the official release calendar, and released items without a verified opaque report ID use the official release index rather than an invented URL. The HCOB PMI page is retained in event metadata as the sponsoring source.
+
+ECB statistical releases
+
+Calendar-only
+
+The connector parses the official ECB Statistical Calendar and keeps each release as a separate EUR event. Named series cover HICP, balance of payments, bank rates, monetary developments, Bank Lending Survey, government finance, investment funds, and payments, with a fallback for other official ECB statistical releases. The calendar event links to a matched official ECB press release when the ECB RSS identifies one; otherwise it links to the official statistical calendar. Multidimensional Data Portal values are not collapsed into a single calendar value without a verified series definition.
 
 National releases, in this order: Germany, France, Italy, Spain, Netherlands, then other euro-area members.
 

@@ -1,0 +1,10 @@
+update public.economic_event_series
+set country = 'Eurozone', updated_at = now()
+where series_key in (
+  'eur-hcob-pmi-flash-manufacturing',
+  'eur-hcob-pmi-flash-services',
+  'eur-hcob-pmi-flash-composite',
+  'eur-hcob-pmi-final-manufacturing',
+  'eur-hcob-pmi-final-services',
+  'eur-hcob-pmi-final-composite'
+);

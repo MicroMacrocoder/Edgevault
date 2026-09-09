@@ -69,6 +69,8 @@ SCHEDULE_SYNC_PATHS = {
     "eurostat": "/api/economic-events/sync/euro-area",
     "european_commission": "/api/economic-events/sync/european-commission",
     "ecb": "/api/economic-events/sync/ecb",
+    "eurozone_pmi": "/api/economic-events/sync/eurozone-pmi",
+    "ecb_statistics": "/api/economic-events/sync/ecb/statistics",
 }
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
@@ -187,14 +189,21 @@ def synchronize_calendar() -> dict[str, Any]:
         census_result.get("fetched"),
         census_result.get("synced"),
     )
-    dol_result = request_json(
-        "/api/economic-events/sync/dol", method="POST", authorized=True
-    )
-    LOG.info(
-        "DOL calendar synchronized: fetched=%s synced=%s",
-        dol_result.get("fetched"),
-        dol_result.get("synced"),
-    )
+    try:
+        dol_result = request_json(
+            "/api/economic-events/sync/dol", method="POST", authorized=True
+        )
+        LOG.info(
+            "DOL calendar synchronized: fetched=%s synced=%s",
+            dol_result.get("fetched"),
+            dol_result.get("synced"),
+        )
+    except Exception as error:
+        dol_result = {"error": str(error)}
+        LOG.warning(
+            "DOL synchronization failed; continuing with remaining sources: %s",
+            error,
+        )
     treasury_result = request_json(
         "/api/economic-events/sync/treasury", method="POST", authorized=True
     )
@@ -211,14 +220,21 @@ def synchronize_calendar() -> dict[str, Any]:
         umich_result.get("fetched"),
         umich_result.get("synced"),
     )
-    ism_result = request_json(
-        "/api/economic-events/sync/ism", method="POST", authorized=True
-    )
-    LOG.info(
-        "ISM calendar synchronized: fetched=%s synced=%s",
-        ism_result.get("fetched"),
-        ism_result.get("synced"),
-    )
+    try:
+        ism_result = request_json(
+            "/api/economic-events/sync/ism", method="POST", authorized=True
+        )
+        LOG.info(
+            "ISM calendar synchronized: fetched=%s synced=%s",
+            ism_result.get("fetched"),
+            ism_result.get("synced"),
+        )
+    except Exception as error:
+        ism_result = {"error": str(error)}
+        LOG.warning(
+            "ISM synchronization failed; continuing with remaining sources: %s",
+            error,
+        )
     conference_board_result = request_json(
         "/api/economic-events/sync/conference-board",
         method="POST",
@@ -316,6 +332,45 @@ def synchronize_calendar() -> dict[str, Any]:
             "ECB synchronization failed; continuing with remaining worker cycle: %s",
             error,
         )
+    try:
+        eurozone_pmi_result = request_json(
+            "/api/economic-events/sync/eurozone-pmi",
+            method="POST",
+            authorized=True,
+            timeout=120,
+        )
+        LOG.info(
+            "Eurozone PMI calendar synchronized: fetched=%s synced=%s flash=%s final=%s",
+            eurozone_pmi_result.get("fetched"),
+            eurozone_pmi_result.get("synced"),
+            eurozone_pmi_result.get("flash"),
+            eurozone_pmi_result.get("final"),
+        )
+    except Exception as error:
+        eurozone_pmi_result = {"error": str(error)}
+        LOG.warning(
+            "Eurozone PMI synchronization failed; continuing with remaining worker cycle: %s",
+            error,
+        )
+    try:
+        ecb_statistics_result = request_json(
+            "/api/economic-events/sync/ecb/statistics",
+            method="POST",
+            authorized=True,
+            timeout=120,
+        )
+        LOG.info(
+            "ECB statistical calendar synchronized: fetched=%s synced=%s families=%s",
+            ecb_statistics_result.get("fetched"),
+            ecb_statistics_result.get("synced"),
+            ecb_statistics_result.get("families"),
+        )
+    except Exception as error:
+        ecb_statistics_result = {"error": str(error)}
+        LOG.warning(
+            "ECB statistical synchronization failed; continuing with remaining worker cycle: %s",
+            error,
+        )
     return {
         "bls": bls_result,
         "bea": bea_result,
@@ -334,6 +389,8 @@ def synchronize_calendar() -> dict[str, Any]:
         "european_commission": european_commission_result,
         "ecb": ecb_result,
         "ecb_transcripts": ecb_transcript_result,
+        "eurozone_pmi": eurozone_pmi_result,
+        "ecb_statistics": ecb_statistics_result,
     }
 
 
@@ -523,9 +580,10 @@ def refresh_release_watches(
         "eurostat": "Eurostat",
         "european_commission": "European Commission DG ECFIN Business and Consumer Surveys",
         "ecb": "European Central Bank",
+        "eurozone_pmi": "S&P Global / HCOB",
     }
     for source, source_agency in sources.items():
-        currency = "EUR" if source in {"eurostat", "european_commission", "ecb"} else "USD"
+        currency = "EUR" if source in {"eurostat", "european_commission", "ecb", "eurozone_pmi"} else "USD"
         for event_time in fetch_upcoming_release_times(source_agency, currency):
             key = f"{source}:{event_time.isoformat()}"
             if key in completed or key in watches:
