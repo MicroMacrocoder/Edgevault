@@ -256,7 +256,7 @@ The connector contains separate release mappings and an official Eurostat Statis
 
 Eurostat release calendar
 
-Eurostat is broken down below because the code contains both value-backed and calendar-only series. The value-backed entries use the official Eurostat Statistics API through src/lib/eurostatEconomicData.ts. The calendar-only entries have release mappings and official Data Browser links but no entry in the connector's VALUE_CONFIGS map.
+Eurostat is broken down below because the code contains both value-backed and calendar-only series. The value-backed entries use the official Eurostat Statistics API through src/lib/eurostatEconomicData.ts. Unmapped official Eurostat releases are retained through the generic calendar-only fallback with their release title, date, status, and official release or Data Browser link.
 
 Eurostat series
 
@@ -358,31 +358,37 @@ Euro Area Trade Balance
 
 Calendar-only
 
-Release mapping exists for ext_st_27_2020msbec, but no numeric VALUE_CONFIGS entry exists.
+Release mapping exists for ext_st_27_2020msbec, but no clean aggregate numeric value was verified for redistribution.
 
 Euro Area Current Account
 
 Calendar-only
 
-Release mapping exists for bop_c6_q, but no numeric VALUE_CONFIGS entry exists.
+Release mapping exists for bop_c6_q, but no clean aggregate numeric value was verified for redistribution.
 
 Euro Area Job Vacancy Rate
 
-Calendar-only
+Fully done
 
-Release mapping exists for jvs_q_nace2, but no numeric VALUE_CONFIGS entry exists.
+Numeric configuration: jvs_q_nace2, unadjusted B-S aggregate job-vacancy rate (JVR).
 
 Euro Area 3-Month Interest Rate
 
-Calendar-only
+Fully done
 
-Release mapping exists for irt_euryld_m, but no numeric VALUE_CONFIGS entry exists.
+Numeric configuration: irt_st_m, Euro Area (EA) 3-month rate (IRT_M3).
 
 Euro Area Long-Term Government Bond Yield
 
+Fully done
+
+Numeric configuration: irt_lt_mcby_m, Euro Area (EA) EMU convergence-criterion bond yield (MCBY).
+
+Eurostat Calendar-only fallback
+
 Calendar-only
 
-Release mapping exists for irt_lt_mcby_m, but no numeric VALUE_CONFIGS entry exists.
+Any official Eurostat release authored by estat that is not mapped to a value-backed series is retained as a separate calendar event under the generic Eurostat Calendar-only Release series. Its numeric values are never invented or fetched; the event keeps the original title, period, theme, dataset code, and an official Eurostat release or Data Browser link.
 
 Roadmap — EUR Coverage
 

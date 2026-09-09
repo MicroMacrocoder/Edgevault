@@ -39,6 +39,8 @@ type ValueConfig = {
   query: Record<string, string>;
 };
 
+const EUROSTAT_CALENDAR_ONLY_SERIES_KEY = "eur-eurostat-calendar-only";
+
 type JsonStatDataset = {
   id?: string[];
   size?: number[];
@@ -82,7 +84,7 @@ const RELEASE_MAPPINGS: ReleaseMapping[] = [
   { match: (title) => /^house price index/i.test(title), releases: [{ seriesKey: "eur-house-price-index", title: "Euro Area House Price Index", category: "Housing", unit: "Index", datasetCode: "prc_hpi_q" }] },
   { match: (title) => /^services production/i.test(title), releases: [{ seriesKey: "eur-services-production", title: "Euro Area Services Production", category: "Production", unit: "%", datasetCode: "sts_sepr_m" }] },
   { match: (title) => /^building permits/i.test(title), releases: [{ seriesKey: "eur-building-permits", title: "Euro Area Building Permits", category: "Housing", unit: "Index", datasetCode: "sts_cobp_m" }] },
-  { match: (title) => /^interest rates \(3 months\)/i.test(title), releases: [{ seriesKey: "eur-three-month-interest-rate", title: "Euro Area 3-Month Interest Rate", category: "Interest Rates", unit: "%", datasetCode: "irt_euryld_m" }] },
+  { match: (title) => /^interest rates \(3 months\)/i.test(title), releases: [{ seriesKey: "eur-three-month-interest-rate", title: "Euro Area 3-Month Interest Rate", category: "Interest Rates", unit: "%", datasetCode: "irt_st_m" }] },
   { match: (title) => /^long term government bond yield/i.test(title), releases: [{ seriesKey: "eur-long-term-government-bond-yield", title: "Euro Area Long-Term Government Bond Yield", category: "Interest Rates", unit: "%", datasetCode: "irt_lt_mcby_m" }] },
 ];
 
@@ -102,6 +104,9 @@ const VALUE_CONFIGS: Record<string, ValueConfig> = {
   "eur-house-price-index": { datasetCode: "prc_hpi_q", periodKind: "quarter", query: { purchase: "TOTAL", unit: "RCH_Q" } },
   "eur-services-production": { datasetCode: "sts_sepr_m", periodKind: "month", query: { indic_bt: "PRD", nace_r2: "G-N_X_K", s_adj: "SCA", unit: "PCH_PRE" } },
   "eur-building-permits": { datasetCode: "sts_cobp_m", periodKind: "month", query: { indic_bt: "BPRM_DW", cpa2_1: "CPA_F41001", s_adj: "NSA", unit: "PCH_PRE" } },
+  "eur-job-vacancy-rate": { datasetCode: "jvs_q_nace2", periodKind: "quarter", query: { s_adj: "NSA", nace_r2: "B-S", sizeclas: "TOTAL", indic_em: "JVR" } },
+  "eur-three-month-interest-rate": { datasetCode: "irt_st_m", periodKind: "month", query: { geo: "EA", int_rt: "IRT_M3" } },
+  "eur-long-term-government-bond-yield": { datasetCode: "irt_lt_mcby_m", periodKind: "month", query: { geo: "EA", int_rt: "MCBY" } },
 };
 
 function dataBrowserUrl(datasetCode?: string): string {
@@ -205,6 +210,13 @@ function parseRows(payload: unknown): EurostatCalendarRow[] {
   return payload.filter((row): row is EurostatCalendarRow => Boolean(row && typeof row === "object"));
 }
 
+function firstDatasetCode(datasetCodes: string | undefined): string | undefined {
+  return datasetCodes
+    ?.split(",")
+    .map((code) => code.trim())
+    .find(Boolean);
+}
+
 function calendarWindow(): { start: string; end: string } {
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), 1));
@@ -234,9 +246,15 @@ export async function fetchEurostatCalendarEvents(): Promise<EconomicSourceEvent
   for (const row of parseRows(await response.json())) {
     if (row.euroindAuthor !== "estat" || !row.recordid || !row.start || !row.title) continue;
     const mapping = RELEASE_MAPPINGS.find((candidate) => candidate.match(row.title!));
-    if (!mapping) continue;
     const eventTime = new Date(row.start).toISOString();
-    for (const release of mapping.releases) {
+    const releases = mapping?.releases || [{
+      seriesKey: EUROSTAT_CALENDAR_ONLY_SERIES_KEY,
+      title: row.title,
+      category: row.theme || "Eurostat",
+      unit: "",
+      datasetCode: firstDatasetCode(row.datasetCodes),
+    }];
+    for (const release of releases) {
       const externalId = `eurostat:${row.recordid}:${release.seriesKey}`;
       const sourceEventId = `${row.recordid}:${release.seriesKey}`;
       const released = new Date(eventTime).getTime() <= Date.now();
@@ -264,7 +282,9 @@ export async function fetchEurostatCalendarEvents(): Promise<EconomicSourceEvent
           eurostat_dataset_codes: row.datasetCodes || null,
           release_calendar_url: EUROSTAT_RELEASE_CALENDAR_URL,
           dataset_code: release.datasetCode || null,
-          values_workflow: "official_eurostat_statistics_api",
+          values_workflow: mapping ? "official_eurostat_statistics_api" : "calendar_only",
+          values_not_synced: !mapping,
+          calendar_only_reason: mapping ? null : "unmapped_eurostat_release",
         },
       });
     }

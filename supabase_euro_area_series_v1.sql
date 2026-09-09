@@ -22,12 +22,13 @@ from (values
   ('eur-current-account','Euro Area Current Account','Trade','Quarterly','EUR million',70,'Euro-area balance of payments current account.', '{"dataset_code":"bop_c6_q","link_only":true}'::text),
   ('eur-construction-output-mom','Euro Area Construction Output MoM','Construction','Monthly','%',55,'Euro-area construction production.', '{"dataset_code":"sts_copr_m","numeric_values":true,"link_only":false}'::text),
   ('eur-labour-cost-yoy','Euro Area Labour Cost YoY','Labour','Quarterly','%',70,'Euro-area labour-cost index.', '{"dataset_code":"lc_lci_r2_q","numeric_values":true,"link_only":false}'::text),
-  ('eur-job-vacancy-rate','Euro Area Job Vacancy Rate','Labour','Quarterly','%',55,'Euro-area job-vacancy rate.', '{"dataset_code":"jvs_q_nace2","link_only":true}'::text),
+  ('eur-job-vacancy-rate','Euro Area Job Vacancy Rate','Labour','Quarterly','%',55,'Euro-area job-vacancy rate.', '{"dataset_code":"jvs_q_nace2","numeric_values":true,"link_only":false}'::text),
   ('eur-house-price-index','Euro Area House Price Index','Housing','Quarterly','Index',50,'Euro-area residential property prices.', '{"dataset_code":"prc_hpi_q","numeric_values":true,"link_only":false}'::text),
   ('eur-services-production','Euro Area Services Production','Production','Monthly','%',55,'Euro-area services production.', '{"dataset_code":"sts_sepr_m","numeric_values":true,"link_only":false}'::text),
-  ('eur-building-permits','Euro Area Building Permits','Housing','Monthly','Index',50,'Euro-area building permits.', '{"dataset_code":"sts_cobp_m","link_only":true}'::text),
-  ('eur-three-month-interest-rate','Euro Area 3-Month Interest Rate','Interest Rates','Monthly','%',45,'Euro-area three-month interest rate.', '{"dataset_code":"irt_euryld_m","link_only":true}'::text),
-  ('eur-long-term-government-bond-yield','Euro Area Long-Term Government Bond Yield','Interest Rates','Monthly','%',40,'Euro-area long-term government bond yield.', '{"dataset_code":"irt_lt_mcby_m","link_only":true}'::text)
+  ('eur-building-permits','Euro Area Building Permits','Housing','Monthly','Index',50,'Euro-area building permits.', '{"dataset_code":"sts_cobp_m","numeric_values":true,"link_only":false}'::text),
+  ('eur-three-month-interest-rate','Euro Area 3-Month Interest Rate','Interest Rates','Monthly','%',45,'Euro-area three-month interest rate.', '{"dataset_code":"irt_st_m","numeric_values":true,"link_only":false,"interest_rate":"IRT_M3","geo":"EA"}'::text),
+  ('eur-long-term-government-bond-yield','Euro Area Long-Term Government Bond Yield','Interest Rates','Monthly','%',40,'Euro-area long-term government bond yield.', '{"dataset_code":"irt_lt_mcby_m","numeric_values":true,"link_only":false,"interest_rate":"MCBY","geo":"EA"}'::text),
+  ('eur-eurostat-calendar-only','Eurostat Calendar-only Release','Other','Irregular',null,20,'Unmapped official Eurostat release retained as calendar metadata with an official source link.', '{"calendar_only":true,"link_only":true}'::text)
 ) as item(series_key,name,category,frequency,unit,impact,notes,metadata)
 on conflict (series_key) do update set
   name = excluded.name, category = excluded.category, event_kind = excluded.event_kind,
