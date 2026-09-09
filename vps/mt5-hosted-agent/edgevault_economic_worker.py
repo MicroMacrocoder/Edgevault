@@ -380,8 +380,10 @@ def synchronize_calendar() -> dict[str, Any]:
             timeout=120,
         )
         LOG.info(
-            "Euro-area national statistics calendar synchronized: countries=%s fetched=%s synced=%s",
+            "Euro-area national statistics calendar synchronized: countries=%s available=%s unavailable=%s fetched=%s synced=%s",
             euro_national_result.get("countries"),
+            len(euro_national_result.get("availableCountries") or []),
+            len(euro_national_result.get("unavailableCountries") or []),
             euro_national_result.get("fetched"),
             euro_national_result.get("synced"),
         )

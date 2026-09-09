@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   EURO_NATIONAL_SOURCE_NAME,
   EURO_NATIONAL_OFFICES,
+  attachOfficialNationalValues,
   fetchEuroNationalCalendarSync,
 } from "@/lib/euroNationalEconomicData";
 import { upsertOfficialEconomicEvents } from "@/lib/supabase/economicEvents";
@@ -26,7 +27,10 @@ export async function POST(request: Request) {
   try {
     const sync = await fetchEuroNationalCalendarSync();
     const sourceEvents = sync.events;
-    const result = await upsertOfficialEconomicEvents(sourceEvents);
+    const valueBacked = await attachOfficialNationalValues(sourceEvents);
+    const result = await upsertOfficialEconomicEvents(sourceEvents, {
+      clearUnsetValues: true,
+    });
     if (result.error) {
       console.error("NATIONAL EUR CALENDAR UPSERT ERROR:", result.error);
       return NextResponse.json(
@@ -41,8 +45,8 @@ export async function POST(request: Request) {
       unavailableCountries: sync.unavailableCountries,
       fetched: sourceEvents.length,
       synced: result.synced,
-      valueBacked: 0,
-      calendarOnly: sourceEvents.length,
+      valueBacked,
+      calendarOnly: sourceEvents.filter((event) => event.actual == null && event.previous == null).length,
       syncedAt: new Date().toISOString(),
     });
   } catch (error) {

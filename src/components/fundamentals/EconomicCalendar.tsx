@@ -770,7 +770,13 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
 
                       {expanded ? (
                         <div className="border-t border-gray-800 bg-[#05070d] p-4">
-                          <div className="mb-4 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                          <div className="mb-4 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-5">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-gray-600">
+                                Country
+                              </p>
+                              <p className="mt-1 text-gray-200">{event.country || "—"}</p>
+                            </div>
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-gray-600">
                                 Reference period

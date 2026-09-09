@@ -33,7 +33,8 @@ export function impactFromScore(score: number): EconomicImpact {
 }
 
 export async function upsertOfficialEconomicEvents(
-  sourceEvents: EconomicSourceEvent[]
+  sourceEvents: EconomicSourceEvent[],
+  options?: { clearUnsetValues?: boolean }
 ) {
   if (sourceEvents.length === 0) {
     return { error: null, events: [] as EconomicEventRow[], synced: 0 };
@@ -88,6 +89,7 @@ export async function upsertOfficialEconomicEvents(
     ])
   );
   const checkedAt = new Date().toISOString();
+  const clearUnsetValues = options?.clearUnsetValues === true;
 
   const rows = sourceEvents.map((sourceEvent) => {
     const series = seriesByKey.get(sourceEvent.seriesKey)!;
@@ -107,9 +109,9 @@ export async function upsertOfficialEconomicEvents(
       impact: impactFromScore(expectedImpactScore),
       event_time: sourceEvent.eventTime,
       forecast: sourceEvent.forecast ?? existing?.forecast ?? null,
-      previous: sourceEvent.previous ?? existing?.previous ?? null,
+      previous: sourceEvent.previous ?? (clearUnsetValues ? null : existing?.previous ?? null),
       actual: isReleased
-        ? sourceEvent.actual ?? existing?.actual ?? null
+        ? sourceEvent.actual ?? (clearUnsetValues ? null : existing?.actual ?? null)
         : null,
       unit: sourceEvent.unit ?? series.unit,
       source: series.official_source_name,
@@ -125,8 +127,10 @@ export async function upsertOfficialEconomicEvents(
         ? sourceEvent.releaseStatus ??
           (existing?.release_status === "revised" ? "revised" : "released")
         : "scheduled",
-      initial_actual: isReleased ? existing?.initial_actual ?? null : null,
-      revised_previous: isReleased ? existing?.revised_previous ?? null : null,
+      initial_actual:
+        isReleased && !clearUnsetValues ? existing?.initial_actual ?? null : null,
+      revised_previous:
+        isReleased && !clearUnsetValues ? existing?.revised_previous ?? null : null,
       base_impact_score: series.base_impact_score,
       expected_impact_score: expectedImpactScore,
       realized_impact_score: existing?.realized_impact_score ?? null,
