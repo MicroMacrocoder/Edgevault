@@ -2,6 +2,7 @@ import AdmZip from "adm-zip";
 import type { EconomicSourceEvent } from "@/types/economic";
 
 const SOURCE_NAME = "Federal Reserve Regional Surveys";
+const REGIONAL_FED_REQUEST_TIMEOUT_MS = 15_000;
 
 export const DALLAS_MANUFACTURING_URL =
   "https://www.dallasfed.org/research/surveys/tmos";
@@ -61,31 +62,55 @@ function absoluteUrl(value: string, base: string): string {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: {
-      Accept: "text/html,text/plain;q=0.9,*/*;q=0.1",
-      "User-Agent": "EdgeVault-Economic-Calendar/1.0",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Additional regional Fed request failed with HTTP ${response.status}: ${url}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REGIONAL_FED_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        Accept: "text/html,text/plain;q=0.9,*/*;q=0.1",
+        "User-Agent": "EdgeVault-Economic-Calendar/1.0",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Additional regional Fed request failed with HTTP ${response.status}: ${url}`);
+    }
+    return response.text();
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Additional regional Fed request timed out after ${REGIONAL_FED_REQUEST_TIMEOUT_MS / 1000}s: ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return response.text();
 }
 
 async function fetchBinary(url: string): Promise<Buffer> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: {
-      Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*;q=0.1",
-      "User-Agent": "EdgeVault-Economic-Calendar/1.0",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Additional regional Fed data request failed with HTTP ${response.status}: ${url}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REGIONAL_FED_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*;q=0.1",
+        "User-Agent": "EdgeVault-Economic-Calendar/1.0",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Additional regional Fed data request failed with HTTP ${response.status}: ${url}`);
+    }
+    return Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Additional regional Fed data request timed out after ${REGIONAL_FED_REQUEST_TIMEOUT_MS / 1000}s: ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return Buffer.from(await response.arrayBuffer());
 }
 
 function monthIndex(value: string): number {

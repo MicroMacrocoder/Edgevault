@@ -16,6 +16,8 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ] as const;
 
+const REGIONAL_FED_REQUEST_TIMEOUT_MS = 15_000;
+
 function easternTimeToUtc(year: number, month: number, day: number, hour: number, minute: number): string {
   const desired = Date.UTC(year, month - 1, day, hour, minute);
   let candidate = new Date(desired);
@@ -34,12 +36,24 @@ function easternTimeToUtc(year: number, month: number, day: number, hour: number
 }
 
 async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { Accept: "text/csv,text/html;q=0.9,*/*;q=0.1", "User-Agent": "EdgeVault-Economic-Calendar/1.0" },
-  });
-  if (!response.ok) throw new Error(`Regional Fed request failed with HTTP ${response.status}.`);
-  return response.text();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REGIONAL_FED_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { Accept: "text/csv,text/html;q=0.9,*/*;q=0.1", "User-Agent": "EdgeVault-Economic-Calendar/1.0" },
+    });
+    if (!response.ok) throw new Error(`Regional Fed request failed with HTTP ${response.status}.`);
+    return response.text();
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Regional Fed request timed out after ${REGIONAL_FED_REQUEST_TIMEOUT_MS / 1000}s: ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function parseCsv(csv: string): string[][] {
@@ -186,10 +200,10 @@ function event(
   };
 }
 
-export async function fetchRegionalFederalReserveCalendarEvents(): Promise<EconomicSourceEvent[]> {
-  const [nyHtml, nyCsv, phillyHtml, phillyCsv] = await Promise.all([
-    fetchText(NY_EMPIRE_URL), fetchText(NY_EMPIRE_CSV_URL),
-    fetchText(PHILLY_MBOS_URL), fetchText(PHILLY_MBOS_CSV_URL),
+async function fetchNyEmpireEvents(): Promise<EconomicSourceEvent[]> {
+  const [nyHtml, nyCsv] = await Promise.all([
+    fetchText(NY_EMPIRE_URL),
+    fetchText(NY_EMPIRE_CSV_URL),
   ]);
   const nyCsvValues = latestCsvValues(nyCsv, "GACDSA");
   const nyHeadline = parseNyHeadline(nyHtml);
@@ -198,7 +212,6 @@ export async function fetchRegionalFederalReserveCalendarEvents(): Promise<Econo
     actual: nyHeadline?.actual ?? nyCsvValues.actual,
     previous: nyHeadline?.previous ?? nyCsvValues.previous,
   };
-  const philly = latestPhillyValues(phillyCsv);
   const now = new Date();
   const events: EconomicSourceEvent[] = [];
   const nyReleaseDays = nySchedule(nyHtml);
@@ -207,19 +220,50 @@ export async function fetchRegionalFederalReserveCalendarEvents(): Promise<Econo
   const nyReportLink = nyReportUrl(nyHtml, ny.period);
   const nyReleaseDate = new Date(Date.UTC(ny.period.getUTCFullYear(), ny.period.getUTCMonth(), nyReleaseDay));
   events.push(event("us-ny-empire-state-manufacturing", "NY Empire State Manufacturing Index", new Date(Date.UTC(ny.period.getUTCFullYear(), ny.period.getUTCMonth(), 1)), nyReleaseDate, nyReportLink, ny.actual, ny.previous, "released", { report_page_url: NY_EMPIRE_URL, data_csv_url: NY_EMPIRE_CSV_URL, values_source: nyHeadline ? "Official New York Fed report page headline." : "Official New York Fed seasonally adjusted CSV." }));
-  const phillyReleaseDate = thirdThursday(philly.period.getUTCFullYear(), philly.period.getUTCMonth() + 1);
-  const phillyReport = phillyReportUrl(phillyHtml);
-  events.push(event("us-philadelphia-fed-manufacturing", "Philadelphia Fed Manufacturing Index", philly.period, phillyReleaseDate, phillyReport, philly.actual, philly.previous, "released", { report_page_url: PHILLY_MBOS_URL, data_csv_url: PHILLY_MBOS_CSV_URL, values_source: "Official Philadelphia Fed diffusion-index CSV." }));
   const nextNyPeriod = new Date(Date.UTC(ny.period.getUTCFullYear(), ny.period.getUTCMonth() + 1, 1));
   const nextNyReleaseDay = nyReleaseDays.get(nextNyPeriod.getUTCMonth());
   const nextNyRelease = nextNyReleaseDay ? new Date(Date.UTC(nextNyPeriod.getUTCFullYear(), nextNyPeriod.getUTCMonth(), nextNyReleaseDay)) : null;
   if (nextNyRelease && nextNyRelease.getTime() > now.getTime()) events.push(event("us-ny-empire-state-manufacturing", "NY Empire State Manufacturing Index", nextNyPeriod, nextNyRelease, NY_EMPIRE_URL, null, ny.actual, "scheduled", { schedule_source_url: NY_EMPIRE_URL, values_available_after_release: true, report_link_note: "The official report PDF is refreshed after release." }));
+  return events;
+}
+
+async function fetchPhiladelphiaEvents(): Promise<EconomicSourceEvent[]> {
+  const [phillyHtml, phillyCsv] = await Promise.all([
+    fetchText(PHILLY_MBOS_URL),
+    fetchText(PHILLY_MBOS_CSV_URL),
+  ]);
+  const philly = latestPhillyValues(phillyCsv);
+  const now = new Date();
+  const events: EconomicSourceEvent[] = [];
+  const phillyReleaseDate = thirdThursday(philly.period.getUTCFullYear(), philly.period.getUTCMonth() + 1);
+  const phillyReport = phillyReportUrl(phillyHtml);
+  events.push(event("us-philadelphia-fed-manufacturing", "Philadelphia Fed Manufacturing Index", philly.period, phillyReleaseDate, phillyReport, philly.actual, philly.previous, "released", { report_page_url: PHILLY_MBOS_URL, data_csv_url: PHILLY_MBOS_CSV_URL, values_source: "Official Philadelphia Fed diffusion-index CSV." }));
   const nextPhillyPeriod = new Date(Date.UTC(philly.period.getUTCFullYear(), philly.period.getUTCMonth() + 1, 1));
   const nextPhillyRelease = thirdThursday(nextPhillyPeriod.getUTCFullYear(), nextPhillyPeriod.getUTCMonth() + 1);
   if (nextPhillyRelease.getTime() > now.getTime()) events.push(event("us-philadelphia-fed-manufacturing", "Philadelphia Fed Manufacturing Index", nextPhillyPeriod, nextPhillyRelease, PHILLY_MBOS_URL, null, philly.actual, "scheduled", { schedule_source_url: PHILLY_MBOS_URL, values_available_after_release: true, report_link_note: "The official report page and CSV are refreshed after release." }));
+  return events;
+}
+
+export async function fetchRegionalFederalReserveCalendarEvents(): Promise<EconomicSourceEvent[]> {
+  const primaryResults = await Promise.allSettled([
+    fetchNyEmpireEvents(),
+    fetchPhiladelphiaEvents(),
+  ]);
+  const events: EconomicSourceEvent[] = [];
+  for (const result of primaryResults) {
+    if (result.status === "fulfilled") {
+      events.push(...result.value);
+    } else {
+      console.error("PRIMARY REGIONAL FED SOURCE WARNING:", result.reason);
+    }
+  }
   const additionalEvents =
     await fetchAdditionalRegionalFederalReserveCalendarEvents();
-  return [...events, ...additionalEvents].sort(
+  const allEvents = [...events, ...additionalEvents];
+  if (allEvents.length === 0) {
+    throw new Error("No regional Federal Reserve survey data could be synchronized.");
+  }
+  return allEvents.sort(
     (left, right) =>
       new Date(left.eventTime).getTime() - new Date(right.eventTime).getTime()
   );
