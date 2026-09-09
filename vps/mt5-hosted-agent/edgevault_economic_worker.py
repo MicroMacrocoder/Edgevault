@@ -68,6 +68,7 @@ SCHEDULE_SYNC_PATHS = {
     "regional_fed": "/api/economic-events/sync/regional-fed",
     "eurostat": "/api/economic-events/sync/euro-area",
     "european_commission": "/api/economic-events/sync/european-commission",
+    "ecb": "/api/economic-events/sync/ecb",
 }
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
@@ -279,6 +280,42 @@ def synchronize_calendar() -> dict[str, Any]:
         european_commission_result.get("synced"),
         european_commission_result.get("valueBacked"),
     )
+    try:
+        ecb_result = request_json(
+            "/api/economic-events/sync/ecb",
+            method="POST",
+            authorized=True,
+            timeout=300,
+        )
+        LOG.info(
+            "ECB calendar synchronized: fetched=%s synced=%s decisions=%s press_conferences=%s accounts=%s speeches=%s",
+            ecb_result.get("fetched"),
+            ecb_result.get("synced"),
+            ecb_result.get("decisions"),
+            ecb_result.get("pressConferences"),
+            ecb_result.get("accounts"),
+            ecb_result.get("speeches"),
+        )
+        ecb_transcript_result = request_json(
+            "/api/economic-events/sync/ecb/transcripts?months=60&limit=500",
+            method="POST",
+            authorized=True,
+            timeout=300,
+        )
+        LOG.info(
+            "ECB speech transcripts synchronized: checked=%s published=%s unavailable=%s synced=%s",
+            ecb_transcript_result.get("checked"),
+            ecb_transcript_result.get("published"),
+            ecb_transcript_result.get("unavailable"),
+            ecb_transcript_result.get("synced"),
+        )
+    except Exception as error:
+        ecb_result = {"error": str(error)}
+        ecb_transcript_result = {"error": str(error)}
+        LOG.warning(
+            "ECB synchronization failed; continuing with remaining worker cycle: %s",
+            error,
+        )
     return {
         "bls": bls_result,
         "bea": bea_result,
@@ -295,6 +332,8 @@ def synchronize_calendar() -> dict[str, Any]:
         "regional_fed": regional_fed_result,
         "eurostat": eurostat_result,
         "european_commission": european_commission_result,
+        "ecb": ecb_result,
+        "ecb_transcripts": ecb_transcript_result,
     }
 
 
@@ -387,6 +426,23 @@ def synchronize_european_commission_history() -> dict[str, Any]:
     return result
 
 
+def synchronize_ecb_transcripts() -> dict[str, Any]:
+    result = request_json(
+        "/api/economic-events/sync/ecb/transcripts?months=60&limit=500",
+        method="POST",
+        authorized=True,
+        timeout=300,
+    )
+    LOG.info(
+        "ECB speech transcripts synchronized: checked=%s published=%s unavailable=%s synced=%s",
+        result.get("checked"),
+        result.get("published"),
+        result.get("unavailable"),
+        result.get("synced"),
+    )
+    return result
+
+
 def synchronize_schedule_source(source: str) -> dict[str, Any]:
     path = SCHEDULE_SYNC_PATHS[source]
     result = request_json(path, method="POST", authorized=True)
@@ -466,9 +522,10 @@ def refresh_release_watches(
         "regional_fed": "Federal Reserve Regional Surveys",
         "eurostat": "Eurostat",
         "european_commission": "European Commission DG ECFIN Business and Consumer Surveys",
+        "ecb": "European Central Bank",
     }
     for source, source_agency in sources.items():
-        currency = "EUR" if source in {"eurostat", "european_commission"} else "USD"
+        currency = "EUR" if source in {"eurostat", "european_commission", "ecb"} else "USD"
         for event_time in fetch_upcoming_release_times(source_agency, currency):
             key = f"{source}:{event_time.isoformat()}"
             if key in completed or key in watches:
@@ -572,6 +629,7 @@ def main() -> None:
                 synchronize_census_history()
                 synchronize_dol_history()
                 synchronize_european_commission_history()
+                synchronize_ecb_transcripts()
                 startup_history_pending = False
 
             if now_monotonic >= next_full_history:
@@ -580,6 +638,7 @@ def main() -> None:
                 synchronize_census_history()
                 synchronize_dol_history()
                 synchronize_european_commission_history()
+                synchronize_ecb_transcripts()
                 next_full_history = now_monotonic + FULL_HISTORY_SECONDS
 
             if now_monotonic >= next_event_refresh:

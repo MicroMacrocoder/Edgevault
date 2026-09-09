@@ -8,7 +8,8 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const currency = params.get("currency") || "USD";
     const eventId = params.get("eventId") || undefined;
-    const speeches = await getSpeechArchive(currency, eventId);
+    const sourceAgency = params.get("sourceAgency") || undefined;
+    const speeches = await getSpeechArchive(currency, eventId, sourceAgency);
     return NextResponse.json({ currency: currency.toUpperCase(), speeches });
   } catch (error) {
     console.error("SPEECH ARCHIVE READ ERROR:", error);

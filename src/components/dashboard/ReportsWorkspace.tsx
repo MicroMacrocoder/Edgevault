@@ -111,6 +111,8 @@ type ReportsWorkspaceProps = {
   initialView?: ReportsWorkspaceView;
   initialMarketIntelligenceSymbol?: ReportsMarketIntelligenceSymbol;
   initialSpeechEventId?: string | null;
+  initialSpeechCurrency?: string;
+  initialSpeechSourceAgency?: string | null;
 };
 
 type SpeechArchiveEvent = Pick<
@@ -118,6 +120,8 @@ type SpeechArchiveEvent = Pick<
   | "id"
   | "title"
   | "event_time"
+  | "currency"
+  | "source_agency"
   | "source_url"
   | "release_status"
   | "raw_payload"
@@ -418,10 +422,15 @@ function formatSpeechDate(value: string) {
 function SpeechArchiveView({
   onBack,
   initialSpeechEventId,
+  currency = "USD",
+  sourceAgency,
 }: {
   onBack: () => void;
   initialSpeechEventId?: string | null;
+  currency?: string;
+  sourceAgency?: string | null;
 }) {
+  const currencyLabel = currency === "USD" ? "USD / DXY" : currency;
   const [speeches, setSpeeches] = useState<SpeechArchiveRecord[]>([]);
   const [expandedTranscriptId, setExpandedTranscriptId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -432,10 +441,16 @@ function SpeechArchiveView({
     setError("");
 
     try {
-      const response = await fetch("/api/economic-speeches?currency=USD", {
+      const sourceQuery = sourceAgency
+        ? `&sourceAgency=${encodeURIComponent(sourceAgency)}`
+        : "";
+      const response = await fetch(
+        `/api/economic-speeches?currency=${encodeURIComponent(currency)}${sourceQuery}`,
+        {
         cache: "no-store",
         signal,
-      });
+        },
+      );
       const payload = (await response.json()) as {
         speeches?: SpeechArchiveRecord[];
         message?: string;
@@ -455,7 +470,7 @@ function SpeechArchiveView({
     } finally {
       if (!signal?.aborted) setIsLoading(false);
     }
-  }, []);
+  }, [currency, sourceAgency]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -492,13 +507,15 @@ function SpeechArchiveView({
         <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">
-              DXY / USD policy archive
+              {currency === "EUR" ? "EUR / ECB policy archive" : `${currencyLabel} policy archive`}
             </p>
             <h1 className="mt-2 font-mono text-2xl font-black text-white sm:text-3xl">
-              Fed Speeches & Transcripts
+              {currency === "EUR" ? "ECB Speeches & Transcripts" : "Fed Speeches & Transcripts"}
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-relaxed text-gray-400">
-              Official Federal Reserve Board speeches are archived here. The official speech page is authoritative; any future live transcript will remain a separate provisional record.
+              {currency === "EUR"
+                ? "Official ECB Executive Board speeches and monetary-policy press-conference Q&A are archived here. The ECB publication remains the authoritative source."
+                : "Official Federal Reserve Board speeches are archived here. The official speech page is authoritative; any future live transcript will remain a separate provisional record."}
             </p>
           </div>
 
@@ -523,7 +540,7 @@ function SpeechArchiveView({
         </div>
       ) : archivedSpeeches.length === 0 ? (
         <div className="border border-gray-800 bg-[#111111] p-8 text-center text-sm text-gray-500">
-          No completed Fed speeches with official transcripts are available yet.
+          No completed {currency === "EUR" ? "ECB" : "Fed"} speeches with official transcripts are available yet.
         </div>
       ) : (
         <div className="space-y-3">
@@ -568,11 +585,21 @@ function SpeechArchiveView({
                       </span>
                     </div>
                     <h2 className="mt-3 text-sm font-semibold leading-relaxed text-white sm:text-base">
-                      {event.title}
-                    </h2>
-                    <p className="mt-1 text-xs text-gray-500">
-                      {event.reference_period || "Board of Governors official release"}
-                    </p>
+                        {event.title}
+                      </h2>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {event.reference_period || (currency === "EUR" ? "European Central Bank official release" : "Board of Governors official release")}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em]">
+                        <span className="border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">
+                          Currency: {event.currency || currency}
+                        </span>
+                        {event.source_agency ? (
+                          <span className="border border-gray-800 px-2 py-1 text-gray-500">
+                            Source: {event.source_agency}
+                          </span>
+                        ) : null}
+                      </div>
                     {reportSummary ? (
                       <p className="mt-3 max-w-3xl text-xs leading-relaxed text-gray-400">
                         <span className="font-semibold text-gray-300">EdgeVault summary: </span>
@@ -611,6 +638,9 @@ function SpeechArchiveView({
                 <div className="mt-4 border-t border-gray-800 pt-3">
                   {hasTranscript ? (
                     <>
+                      <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-gray-600">
+                        Official {event.currency || currency} transcript
+                      </p>
                       <button
                         type="button"
                         onClick={() =>
@@ -793,6 +823,8 @@ export default function ReportsWorkspace({
   initialView = "hub",
   initialMarketIntelligenceSymbol = "EUR",
   initialSpeechEventId = null,
+  initialSpeechCurrency = "USD",
+  initialSpeechSourceAgency = null,
 }: ReportsWorkspaceProps) {
   const [view, setView] =
     useState<ReportsWorkspaceView>(initialView);
@@ -1168,6 +1200,8 @@ export default function ReportsWorkspace({
       <SpeechArchiveView
         onBack={() => setView("hub")}
         initialSpeechEventId={initialSpeechEventId}
+        currency={initialSpeechCurrency}
+        sourceAgency={initialSpeechSourceAgency}
       />
     );
   }

@@ -354,6 +354,7 @@ async function fetchTranscript(event: EconomicEventRow) {
 export async function getSpeechArchive(
   currency = "USD",
   eventId?: string,
+  sourceAgency = FED_SOURCE_NAME,
 ): Promise<SpeechArchiveItem[]> {
   const supabase = getSupabaseServer();
   let eventQuery = supabase
@@ -361,7 +362,7 @@ export async function getSpeechArchive(
     .select("*")
     .eq("currency", currency.toUpperCase())
     .eq("event_kind", "speech")
-    .eq("source_agency", FED_SOURCE_NAME);
+    .eq("source_agency", sourceAgency);
   if (eventId) eventQuery = eventQuery.eq("id", eventId);
   const { data: eventData, error: eventError } = await eventQuery
     .order("event_time", { ascending: false })

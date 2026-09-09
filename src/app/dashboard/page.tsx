@@ -1881,6 +1881,10 @@ export default function DashboardPage() {
     useState<ReportsWorkspaceView>("hub");
   const [selectedReportsSpeechEventId, setSelectedReportsSpeechEventId] =
     useState<string | null>(null);
+  const [selectedReportsSpeechCurrency, setSelectedReportsSpeechCurrency] =
+    useState("USD");
+  const [selectedReportsSpeechSourceAgency, setSelectedReportsSpeechSourceAgency] =
+    useState<string | null>(null);
   const [
     selectedReportsMarketIntelligenceSymbol,
     setSelectedReportsMarketIntelligenceSymbol,
@@ -1898,6 +1902,8 @@ export default function DashboardPage() {
       setSelectedSection("reports");
       setSelectedReportsView("speech-archive");
       setSelectedReportsSpeechEventId(params.get("speechId"));
+      setSelectedReportsSpeechCurrency(params.get("speechCurrency") || "USD");
+      setSelectedReportsSpeechSourceAgency(params.get("speechSource"));
     }
   }, []);
 
@@ -1974,6 +1980,8 @@ export default function DashboardPage() {
     if (section === "reports") {
       setSelectedReportsView("hub");
       setSelectedReportsSpeechEventId(null);
+      setSelectedReportsSpeechCurrency("USD");
+      setSelectedReportsSpeechSourceAgency(null);
     }
 
     setSelectedSection(section);
@@ -2155,6 +2163,8 @@ export default function DashboardPage() {
               <ReportsWorkspace
                 initialView={selectedReportsView}
                 initialSpeechEventId={selectedReportsSpeechEventId}
+                initialSpeechCurrency={selectedReportsSpeechCurrency}
+                initialSpeechSourceAgency={selectedReportsSpeechSourceAgency}
                 initialMarketIntelligenceSymbol={
                   selectedReportsMarketIntelligenceSymbol
                 }

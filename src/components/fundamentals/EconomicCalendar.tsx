@@ -462,6 +462,8 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
         const response = await fetch(
           `/api/economic-speeches?currency=${encodeURIComponent(
             event.currency || "USD",
+          )}&sourceAgency=${encodeURIComponent(
+            event.source_agency || "",
           )}&eventId=${encodeURIComponent(event.id)}`,
           { cache: "no-store" },
         );
@@ -702,7 +704,7 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
                   const history = event.series_id ? histories[event.series_id] : undefined;
                   const speechReport = speechReports[event.id];
                   const edgeVaultReportUrl =
-                    `/dashboard?section=reports&reportsView=speech-archive&speechId=${encodeURIComponent(event.id)}`;
+                    `/dashboard?section=reports&reportsView=speech-archive&speechId=${encodeURIComponent(event.id)}&speechCurrency=${encodeURIComponent(event.currency || "USD")}&speechSource=${encodeURIComponent(event.source_agency || "")}`;
 
                   return (
                     <div key={event.id} className="border-b border-gray-800/80 last:border-0">
@@ -824,6 +826,9 @@ export default function EconomicCalendar({ compact = false }: EconomicCalendarPr
                                 <p className="mt-1 text-xs text-red-300">{speechReport.error}</p>
                               ) : speechReport?.available ? (
                                 <>
+                                  <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-yellow-300">
+                                    Transcript currency: {event.currency || "—"}
+                                  </p>
                                   <p className="mt-1 max-w-4xl text-xs leading-relaxed text-gray-300">
                                     {speechReport.summary ||
                                       "The official transcript is archived in EdgeVault."}
