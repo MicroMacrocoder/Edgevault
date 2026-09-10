@@ -60,11 +60,12 @@ export const EURO_NATIONAL_OFFICES: NationalOffice[] = [
     officialUrl: "https://statbel.fgov.be/en/",
   },
   {
-    countryCode: "BG",
-    country: "Bulgaria",
-    office: "National Statistical Institute of Bulgaria",
-    calendarUrl: "https://www.nsi.bg/en/calendar",
-    officialUrl: "https://www.nsi.bg/en/",
+    countryCode: "DE",
+    country: "Germany",
+    office: "Federal Statistical Office of Germany (Destatis)",
+    calendarUrl: "https://www.destatis.de/EN/Press/Dates/Weekly-Preview-Rebrush/_inhalt.html",
+    officialUrl: "https://www.destatis.de/EN/Home/_inhalt.html",
+    releaseUrl: "https://www.destatis.de/EN/Press/press_node_2.html",
   },
   {
     countryCode: "NL",
@@ -89,6 +90,14 @@ export const EURO_NATIONAL_OFFICES: NationalOffice[] = [
     calendarUrl: "https://www.istat.it/en/information-and-services-for-users/journalists/press-releases/press-calendar/",
     officialUrl: "https://www.istat.it/en/",
     releaseUrl: "https://www.istat.it/en/information-and-services-for-users/journalists/press-releases/",
+  },
+  {
+    countryCode: "FR",
+    country: "France",
+    office: "French National Institute of Statistics (INSEE)",
+    calendarUrl: "https://www.insee.fr/en/information/2107811",
+    officialUrl: "https://www.insee.fr/en/accueil",
+    releaseUrl: "https://www.insee.fr/en/information/2107814",
   },
   {
     countryCode: "EE",
@@ -157,7 +166,7 @@ const ECONOMIC_TERMS = [
   "job vacancy",
 ];
 
-const NATIONAL_VALUE_COUNTRIES = ["NL", "ES", "IT"] as const;
+const NATIONAL_VALUE_COUNTRIES = ["DE", "FR", "NL", "ES", "IT"] as const;
 
 // These are official Eurostat country-level series. The national offices remain
 // the release/link sources; Eurostat supplies the reusable numeric observation.

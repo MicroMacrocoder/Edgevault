@@ -186,7 +186,7 @@ Treasury release calendar
 
 University of Michigan Surveys of Consumers (UMich)
 
-Calendar-only
+Calendar and release coverage
 
 The connector explicitly sets values_not_synced and stores the official report link; it does not copy survey numeric values.
 
@@ -417,6 +417,10 @@ The connector parses the official ECB Statistical Calendar and keeps each releas
 National euro-area statistical releases
 
 Calendar-only
+
+The current national EUR update adds Germany through Destatis and France through INSEE, removes Bulgaria from the active connector, and uses verified Eurostat country observations for supported German and French releases. Unsupported releases remain link-only with official national-office URLs.
+
+The previous baseline description below is retained as historical context and is superseded by this update.
 
 The active national EUR connector covers official calendar and release sources for Austria, Belgium, Bulgaria, Estonia, Finland, Ireland, Slovenia, the Netherlands, Spain, and Italy. The Netherlands uses the CBS publication calendar and news pages; Spain uses the INE statistics-availability calendar and press releases; Italy uses the Istat press calendar and press releases. It reads each office's official release calendar and published-release index in parallel, labels every event with the issuing country and EUR, and stores the direct official release link when the office exposes one. Scheduled entries use the office calendar link; a later synchronization replaces that link with the published release link. Supported releases for the major Netherlands, Spain, and Italy connectors now attach actual and previous values from verified official Eurostat country series; the other active countries and unsupported titles remain link-only. Forecasts remain empty because no licensed consensus forecast provider is included. Croatia, Cyprus, Greece, Latvia, Lithuania, Luxembourg, Malta, Portugal, and Slovakia remain intentionally inactive because their first-pass calendars were not reliably parseable.
 
