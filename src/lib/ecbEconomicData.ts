@@ -1,4 +1,5 @@
 import type { EconomicSourceEvent } from "@/types/economic";
+import { euroCentralBankSpeechCountry } from "@/lib/euroCentralBankSources";
 
 export const ECB_SOURCE_NAME = "European Central Bank";
 export const ECB_MEETING_CALENDAR_URL =
@@ -223,12 +224,13 @@ function makeEvent(args: {
   referencePeriod?: string | null;
   released: boolean;
   rawPayload: Record<string, unknown>;
+  country?: string;
 }): EconomicSourceEvent {
   return {
     externalId: args.externalId,
     seriesKey: args.seriesKey,
     title: args.title,
-    country: "Euro Area",
+    country: args.country || "Euro Area",
     currency: "EUR",
     eventTime: args.eventTime,
     eventKind: args.eventKind,
@@ -372,7 +374,13 @@ function speechEvents(items: RssItem[]): EconomicSourceEvent[] {
       sourceUrl: item.url,
       referencePeriod: date,
       released: true,
-      rawPayload: { publication_type: "executive_board_speech", official_url: item.url, rss_url: ECB_PRESS_RSS_URL },
+      country: euroCentralBankSpeechCountry(item.title),
+      rawPayload: {
+        publication_type: "executive_board_speech",
+        official_url: item.url,
+        rss_url: ECB_PRESS_RSS_URL,
+        speaker_country: euroCentralBankSpeechCountry(item.title),
+      },
     });
   });
 }

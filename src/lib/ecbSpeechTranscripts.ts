@@ -1,5 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import type { EconomicEventRow } from "@/types/economic";
+import {
+  euroCentralBankSpeechCountry,
+  euroCentralBankSpeechSpeaker,
+} from "@/lib/euroCentralBankSources";
 
 export const ECB_SPEECH_SOURCE_NAME = "European Central Bank";
 
@@ -122,6 +126,26 @@ export async function syncEcbSpeechTranscripts(options?: { months?: number; limi
   if (error) throw error;
 
   const events = (data || []) as EconomicEventRow[];
+  const eventIdsByCountry = new Map<string, string[]>();
+  for (const event of events) {
+    const country = euroCentralBankSpeechCountry(event.title);
+    const eventIds = eventIdsByCountry.get(country) || [];
+    eventIds.push(event.id);
+    eventIdsByCountry.set(country, eventIds);
+  }
+
+  // Backfill records created before speaker-country labeling was added. This
+  // is what makes already-synced ECB transcripts show Italy, France, etc.
+  // without requiring a new calendar row or a destructive data migration.
+  for (const [country, eventIds] of eventIdsByCountry) {
+    const { error: countryError } = await supabase
+      .from("economic_events")
+      .update({ country })
+      .in("id", eventIds)
+      .eq("source_agency", ECB_SPEECH_SOURCE_NAME);
+    if (countryError) throw countryError;
+  }
+
   const saved: Array<Record<string, unknown>> = [];
   for (let index = 0; index < events.length; index += 6) {
     const parsed = await Promise.all(events.slice(index, index + 6).map(fetchTranscript));
@@ -130,7 +154,7 @@ export async function syncEcbSpeechTranscripts(options?: { months?: number; limi
       external_id: item!.event.external_id,
       currency: "EUR",
       source_agency: ECB_SPEECH_SOURCE_NAME,
-      speaker: null,
+      speaker: euroCentralBankSpeechSpeaker(item!.event.title),
       title: item!.event.title,
       transcript_type: "official" as const,
       transcript_status: item!.text ? "published" : "unavailable",

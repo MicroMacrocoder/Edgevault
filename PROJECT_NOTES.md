@@ -400,7 +400,7 @@ Fully done
 
 The connector now imports the official annual DG ECFIN release schedule and retains separate EUR calendar events for the monthly Flash Consumer Confidence Indicator and the full Business and Consumer Survey release. The full release is split into Economic Sentiment (ESI), Employment Expectations (EEI), Industrial Confidence, Services Confidence, Consumer Confidence, Retail Trade Confidence, Construction Confidence, Economic Uncertainty (EUI), Labour Hoarding (LHI), and Business Climate (BCI). Numeric history for the ten full-release indicators is loaded from the Commission's official BCS bulk ZIP/XLSX files. Flash Consumer Confidence remains Calendar-only because the official bulk files do not expose a separate flash time series. Scheduled events link to the official annual schedule PDF; after a release appears on the Commission's latest-releases page, the next sync replaces that link with the direct official release PDF. The schedule PDF parser loads pdfjs-dist 4.10.38 at Node runtime, next.config.mjs uses Next.js 14's serverComponentsExternalPackages setting, and outputFileTracingIncludes forces pdf.worker.mjs into the deployed function so the parser's fake-worker fallback can load successfully.
 
-European Central Bank releases: interest-rate decisions, monetary-policy press conferences, introductory statements, press-conference Q&A transcripts, accounts/minutes, other Governing Council decisions, related monetary-policy releases, and Executive Board speeches/transcripts. Implemented by `src/lib/ecbEconomicData.ts`, `src/lib/ecbSpeechTranscripts.ts`, and `supabase_ecb_series_v1.sql`. Direct publication links replace the official meeting-calendar link when a release is published.
+European Central Bank releases: interest-rate decisions, monetary-policy press conferences, introductory statements, press-conference Q&A transcripts, accounts/minutes, other Governing Council decisions, related monetary-policy releases, and Executive Board speeches/transcripts. Implemented by `src/lib/ecbEconomicData.ts`, `src/lib/ecbSpeechTranscripts.ts`, and `supabase_ecb_series_v1.sql`. Direct publication links replace the official meeting-calendar link when a release is published. Institution-wide ECB policy releases remain labelled `Euro Area`; ECB speaker records are labelled with the speaker's verified national country where the title identifies a mapped speaker, including Piero Cipollone as Italy. The transcript sync backfills these country labels for existing ECB speech records and stores the speaker name.
 
 Eurozone PMI releases
 
@@ -426,7 +426,20 @@ The active national EUR connector covers official calendar and release sources f
 
 National releases, in this order: Germany, France, Italy, Spain, Netherlands, then other euro-area members.
 
-EUR central-bank speeches and transcripts, including ECB Executive Board and Governing Council members and relevant national central-bank officials.
+EUR central-bank speeches and transcripts
+
+Fully done
+
+The EUR speech archive now combines the ECB with the four major national central banks: Deutsche Bundesbank (Germany), Banque de France (France), Banca d’Italia (Italy), and Banco de España (Spain). Every national speech event is labelled with `currency=EUR` and its issuing country, and the Reports panel exposes the country, source agency, transcript status, and direct official publication link. The national connector reads the official speech archives, while the transcript connector extracts official HTML or PDF text when available and records an official-link fallback when it is not.
+
+The direct publication URL is refreshed on every synchronization for each dated speech record. This means a scheduled or archive-level link is replaced by the bank's direct published speech page as soon as that page appears. The worker calls both national-central-bank routes with fail-forward handling so a temporary failure at one bank does not stop the remainder of the economic cycle.
+
+Official archive sources:
+
+- Deutsche Bundesbank: https://www.bundesbank.de/en/press/speeches
+- Banque de France: https://www.banque-france.fr/en/governor-interventions
+- Banca d’Italia: https://www.bancaditalia.it/pubblicazioni/menu/interventi-memorie.html?com.dotmarketing.htmlpage.language=1
+- Banco de España: https://www.bde.es/wbe/en/noticias-eventos/actualidad-banco-espana/intervenciones-publicas/
 
 Infrastructure
 

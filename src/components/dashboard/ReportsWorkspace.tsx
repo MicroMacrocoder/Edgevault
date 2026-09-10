@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowLeft,
@@ -119,6 +119,7 @@ type SpeechArchiveEvent = Pick<
   EconomicEventRow,
   | "id"
   | "title"
+  | "country"
   | "event_time"
   | "currency"
   | "source_agency"
@@ -436,6 +437,7 @@ function SpeechArchiveView({
   const currencyLabel = selectedCurrency === "USD" ? "USD / DXY" : selectedCurrency;
   const [speeches, setSpeeches] = useState<SpeechArchiveRecord[]>([]);
   const [expandedTranscriptId, setExpandedTranscriptId] = useState<string | null>(null);
+  const initialExpansionApplied = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -481,17 +483,23 @@ function SpeechArchiveView({
     return () => controller.abort();
   }, [loadSpeeches]);
 
-  const archivedSpeeches = speeches.filter(({ event, transcript }) =>
-    event.release_status !== "scheduled" &&
-    Boolean(event.source_url || transcript?.source_url),
+  const archivedSpeeches = useMemo(
+    () =>
+      speeches.filter(({ event, transcript }) =>
+        event.release_status !== "scheduled" &&
+        Boolean(event.source_url || transcript?.source_url),
+      ),
+    [speeches],
   );
 
   useEffect(() => {
     if (
+      !initialExpansionApplied.current &&
       initialSpeechEventId &&
       archivedSpeeches.some(({ event }) => event.id === initialSpeechEventId)
     ) {
       setExpandedTranscriptId(initialSpeechEventId);
+      initialExpansionApplied.current = true;
     }
   }, [archivedSpeeches, initialSpeechEventId]);
 
@@ -510,14 +518,14 @@ function SpeechArchiveView({
         <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-cyan-400">
-              {selectedCurrency === "EUR" ? "EUR / ECB policy archive" : `${currencyLabel} policy archive`}
+              {selectedCurrency === "EUR" ? "EUR central-bank policy archive" : `${currencyLabel} policy archive`}
             </p>
             <h1 className="mt-2 font-mono text-2xl font-black text-white sm:text-3xl">
-              {selectedCurrency === "EUR" ? "ECB Speeches & Transcripts" : "Fed Speeches & Transcripts"}
+              {selectedCurrency === "EUR" ? "EUR Central-Bank Speeches & Transcripts" : "Fed Speeches & Transcripts"}
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-relaxed text-gray-400">
               {selectedCurrency === "EUR"
-                ? "Official ECB Executive Board speeches and monetary-policy press-conference Q&A are archived here. The ECB publication remains the authoritative source."
+                ? "Official ECB and national central-bank speeches for the euro area are archived here with country and EUR labels. Each bank’s direct publication remains the authoritative source."
                 : "Official Federal Reserve Board speeches are archived here. The official speech page is authoritative; any future live transcript will remain a separate provisional record."}
             </p>
           </div>
@@ -540,7 +548,7 @@ function SpeechArchiveView({
                     : "text-gray-500 hover:text-gray-300"
                 }`}
               >
-                {option === "USD" ? "USD / DXY" : "EUR / ECB"}
+                {option === "USD" ? "USD / DXY" : "EUR / ECB + NCBs"}
               </button>
             ))}
           </div>
@@ -566,7 +574,7 @@ function SpeechArchiveView({
         </div>
       ) : archivedSpeeches.length === 0 ? (
         <div className="border border-gray-800 bg-[#111111] p-8 text-center text-sm text-gray-500">
-          No completed {selectedCurrency === "EUR" ? "ECB" : "Fed"} speeches with official transcripts are available yet.
+          No completed {selectedCurrency === "EUR" ? "EUR central-bank" : "Fed"} speeches with official transcripts are available yet.
         </div>
       ) : (
         <div className="space-y-3">
@@ -620,6 +628,11 @@ function SpeechArchiveView({
                         <span className="border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">
                           Currency: {event.currency || selectedCurrency}
                         </span>
+                        {event.country ? (
+                          <span className="border border-purple-500/30 bg-purple-500/10 px-2 py-1 text-purple-300">
+                            Country: {event.country}
+                          </span>
+                        ) : null}
                         {event.source_agency ? (
                           <span className="border border-gray-800 px-2 py-1 text-gray-500">
                             Source: {event.source_agency}
@@ -1194,7 +1207,7 @@ export default function ReportsWorkspace({
           <ReportModuleCard
             eyebrow="Economic drivers"
             title="Speeches & Economic Transcripts"
-            description="Official USD/DXY and EUR/ECB speech archives with currency labels, transcript access, and one-click live links where an official stream is supplied."
+            description="Official USD/DXY and EUR central-bank speech archives with country and currency labels, transcript access, and direct official links."
             status="live"
             icon={<ScrollText className="h-5 w-5" />}
             onOpen={() => setView("speech-archive")}

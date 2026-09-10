@@ -1,5 +1,6 @@
 import type { EconomicEventRow } from "@/types/economic";
 import { createClient } from "@supabase/supabase-js";
+import { EURO_CENTRAL_BANK_SOURCE_NAMES } from "@/lib/euroCentralBankSources";
 
 const FED_SOURCE_NAME = "Board of Governors of the Federal Reserve System";
 
@@ -358,15 +359,21 @@ export async function getSpeechArchive(
 ): Promise<SpeechArchiveItem[]> {
   const supabase = getSupabaseServer();
   const normalizedCurrency = currency.toUpperCase();
-  const resolvedSourceAgency =
-    sourceAgency ||
-    (normalizedCurrency === "EUR" ? "European Central Bank" : FED_SOURCE_NAME);
   let eventQuery = supabase
     .from("economic_events")
     .select("*")
     .eq("currency", normalizedCurrency)
-    .eq("event_kind", "speech")
-    .eq("source_agency", resolvedSourceAgency);
+    .eq("event_kind", "speech");
+  if (sourceAgency) {
+    eventQuery = eventQuery.eq("source_agency", sourceAgency);
+  } else if (normalizedCurrency === "EUR") {
+    eventQuery = eventQuery.in("source_agency", [
+      "European Central Bank",
+      ...EURO_CENTRAL_BANK_SOURCE_NAMES,
+    ]);
+  } else {
+    eventQuery = eventQuery.eq("source_agency", FED_SOURCE_NAME);
+  }
   if (eventId) eventQuery = eventQuery.eq("id", eventId);
   const { data: eventData, error: eventError } = await eventQuery
     .order("event_time", { ascending: false })

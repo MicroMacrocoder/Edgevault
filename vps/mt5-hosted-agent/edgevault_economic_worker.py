@@ -72,6 +72,7 @@ SCHEDULE_SYNC_PATHS = {
     "eurozone_pmi": "/api/economic-events/sync/eurozone-pmi",
         "ecb_statistics": "/api/economic-events/sync/ecb/statistics",
         "euro_national": "/api/economic-events/sync/euro-national",
+        "euro_national_central_banks": "/api/economic-events/sync/euro-national-central-banks",
 }
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
@@ -393,6 +394,41 @@ def synchronize_calendar() -> dict[str, Any]:
             "Euro-area national statistics synchronization failed; continuing with remaining worker cycle: %s",
             error,
         )
+    try:
+        euro_national_cb_result = request_json(
+            "/api/economic-events/sync/euro-national-central-banks",
+            method="POST",
+            authorized=True,
+            timeout=180,
+        )
+        LOG.info(
+            "Euro-area national central-bank speeches synchronized: countries=%s available=%s unavailable=%s fetched=%s synced=%s",
+            euro_national_cb_result.get("countries"),
+            len(euro_national_cb_result.get("availableCountries") or []),
+            len(euro_national_cb_result.get("unavailableCountries") or []),
+            euro_national_cb_result.get("fetched"),
+            euro_national_cb_result.get("synced"),
+        )
+        euro_national_cb_transcript_result = request_json(
+            "/api/economic-events/sync/euro-national-central-banks/transcripts?months=60&limit=500",
+            method="POST",
+            authorized=True,
+            timeout=300,
+        )
+        LOG.info(
+            "Euro-area national central-bank transcripts synchronized: checked=%s published=%s unavailable=%s synced=%s",
+            euro_national_cb_transcript_result.get("checked"),
+            euro_national_cb_transcript_result.get("published"),
+            euro_national_cb_transcript_result.get("unavailable"),
+            euro_national_cb_transcript_result.get("synced"),
+        )
+    except Exception as error:
+        euro_national_cb_result = {"error": str(error)}
+        euro_national_cb_transcript_result = {"error": str(error)}
+        LOG.warning(
+            "Euro-area national central-bank synchronization failed; continuing with remaining worker cycle: %s",
+            error,
+        )
     return {
         "bls": bls_result,
         "bea": bea_result,
@@ -414,6 +450,8 @@ def synchronize_calendar() -> dict[str, Any]:
         "eurozone_pmi": eurozone_pmi_result,
         "ecb_statistics": ecb_statistics_result,
         "euro_national": euro_national_result,
+        "euro_national_central_banks": euro_national_cb_result,
+        "euro_national_central_bank_transcripts": euro_national_cb_transcript_result,
     }
 
 
@@ -605,9 +643,10 @@ def refresh_release_watches(
         "ecb": "European Central Bank",
         "eurozone_pmi": "S&P Global / HCOB",
         "euro_national": "Euro-area National Statistical Offices",
+        "euro_national_central_banks": "Euro-area National Central Banks",
     }
     for source, source_agency in sources.items():
-        currency = "EUR" if source in {"eurostat", "european_commission", "ecb", "eurozone_pmi", "euro_national"} else "USD"
+        currency = "EUR" if source in {"eurostat", "european_commission", "ecb", "eurozone_pmi", "euro_national", "euro_national_central_banks"} else "USD"
         for event_time in fetch_upcoming_release_times(source_agency, currency):
             key = f"{source}:{event_time.isoformat()}"
             if key in completed or key in watches:
